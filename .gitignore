@@ -1,0 +1,52 @@
+# Akiba v1.0 - .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment & Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist-info/
+
+# Build / Skompilowane pliki (PyInstaller)
+build/
+dist/
+*.exe
+*.msi
+*.zip
+
+# Dane aplikacji w APPDATA - NIE wysyłamy!
+# Wszystkie pliki są zapisywane w %APPDATA%/Akiba/ przez get_appdata_path()
+# config.json, options.json, beacon.log, games.pgn - wszystko tam
+*.log
+*.json
+*.pgn
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# System files
+Thumbs.db
+.DS_Store
+
+# Screenshots - disabled (screenshots are now tracked)
+# screenshots/
+
+# Local / Utility scripts - nie wersjonujemy
+local/
