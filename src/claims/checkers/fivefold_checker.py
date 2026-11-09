@@ -1,4 +1,5 @@
-from typing import List, Any
+from math import ceil
+from typing import List, Any, Set
 from chess.pgn import Game
 
 from src.claims.checkers.base import BaseChecker
@@ -9,12 +10,13 @@ class FiveFoldChecker(BaseChecker):
     """
     Checker for 5-fold repetition claims (automatic draw).
     
-    According to FIDE rules, the game is automatically drawn if the same position 
+    According to FIDE rules, the game is automatically drawn if the same position
     has appeared five times consecutively. This is an actual claim that stops the game.
     """
 
     def __init__(self) -> None:
         super().__init__()
+        self.seen_positions: Set[tuple] = set()
 
     @staticmethod
     def make_game_id(game: Game) -> str:
@@ -55,30 +57,39 @@ class FiveFoldChecker(BaseChecker):
 
             # Check for 5-fold repetition (automatic draw)
             if board.is_fivefold_repetition():
-                printable_move = self.get_printable_move(move_counter, san_move)
-                
-                entry = ClaimEntry(
-                    type=ClaimType.FIVEFOLD,
-                    board_number=board_number,
-                    players=players,
-                    move=printable_move,
-                    game_index=game_index,
-                    move_counter=move_counter,
-                    start_move_counter=last_irreversible_move,
-                    comment="",
-                    game_id=gid,
-                )
-                entries.append(entry)
-                
-                # Stop checking after 5-fold (automatic draw)
-                break
+                fen = board.fen()
+                key = (ClaimType.FIVEFOLD, gid, move_counter, fen)
+
+                if key not in self.seen_positions:
+                    self.seen_positions.add(key)
+
+                    printable_move = self.get_printable_move(move_counter, san_move)
+                    
+                    entry = ClaimEntry(
+                        type=ClaimType.FIVEFOLD,
+                        board_number=board_number,
+                        players=players,
+                        move=printable_move,
+                        game_index=game_index,
+                        move_counter=move_counter,
+                        start_move_counter=last_irreversible_move,
+                        comment="",
+                        game_id=gid,
+                    )
+                    entries.append(entry)
 
         return entries
+
+    @staticmethod
+    def get_printable_move(move_counter: int, san_move: str) -> str:
+        """Formats the move number for display (e.g. '12.Nf3' or '12...Nf6')."""
+        move_num = ceil(move_counter / 2)
+        return f"{move_num}...{san_move}" if move_counter % 2 == 0 else f"{move_num}.{san_move}"
 
     def check_batch(self, games: List[Any], claims_model: Any, **kwargs) -> tuple:
         """Check multiple games for 5-fold repetition."""
         if not self.enabled:
-            return [], {}
+            return [], self.seen_positions
 
         entries = []
 
@@ -90,6 +101,10 @@ class FiveFoldChecker(BaseChecker):
                 entry_dict['game_index'] = idx
                 entries.append(ClaimEntry(**entry_dict))
 
-        return entries, {}
+        return entries, self.seen_positions
+
+    def reset(self) -> None:
+        """Reset the seen positions set."""
+        self.seen_positions.clear()
 
 

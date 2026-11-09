@@ -1,4 +1,4 @@
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Set
 import re
 
 from src.reminders.checkers.base import BaseChecker
@@ -11,11 +11,22 @@ class LowTimeChecker(BaseChecker):
     
     Triggers when a player has less than a specified amount of time remaining
     on their clock, alerting arbiters to monitor the game closely.
+    
+    Logic:
+    - Finds the FIRST move where a player's clock drops below threshold
+    - Does NOT fire again for the same player unless clock increases by 600+ seconds (time control)
+    - Displays the remaining time AFTER the indicated move
+    
+    Uses shown_reminders set to track unique reminders and prevent duplicates.
+    Key format: "{game_id}:{player_side}" for first reminder,
+                "{game_id}:{player_side}:tc:{move_count}" for time control resets.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.default_threshold_seconds = 120  # 2 minutes
+        self.time_control_reset_threshold = 600  # 10 minutes - clock increase indicating time control
+        self.shown_reminders: Set[str] = set()  # Track unique reminders to prevent duplicates
 
     def extract_clock_from_comment(self, node: Any) -> str | None:
         """Extract clock time from a PGN node comment."""
@@ -41,19 +52,29 @@ class LowTimeChecker(BaseChecker):
         except ValueError:
             return 0
 
-    def get_lowest_clock(self, game: Any) -> tuple[int, str, int, str]:
+    def find_first_low_time(self, game: Any, threshold: int, gid: str) -> List[tuple]:
         """
-        Get the lowest clock time from both players in a game.
+        Find the first move where each player's clock drops below threshold.
+        
+        Logic:
+        - Track when each player (White/Black) first goes below threshold using shown_reminders set
+        - After firing, only fire again if clock increased by 600+ seconds (time control)
+        - Returns list of tuples: (player_side, ply_count, san_move, remaining_seconds)
+        
+        Args:
+            game: The chess game to check
+            threshold: Time threshold in seconds
+            gid: Game ID for tracking reminders
         
         Returns:
-            Tuple of (lowest_seconds, player_side, move_counter, san_move) 
-            where player_side is "White" or "Black"
+            List of reminders for this game (can be up to 2 - one per player, or more if time controls occur)
         """
         board = game.board()
-        lowest_time = float('inf')
-        lowest_player = None
-        lowest_move_counter = 0
-        lowest_san_move = ""
+        results = []
+        
+        # Track last fired time for each player (for time control detection)
+        white_last_fired_time = 0
+        black_last_fired_time = 0
         
         for node in game.mainline():
             clock_str = self.extract_clock_from_comment(node)
@@ -65,24 +86,49 @@ class LowTimeChecker(BaseChecker):
                 
                 if clock_str:
                     seconds = self.parse_clock(clock_str)
-                    if seconds < lowest_time:
-                        lowest_time = seconds
-                        # Determine which player this was (even move counter = white's turn to play, odd = black)
-                        move_counter = len(list(board.move_stack)) // 2
-                        if len(list(board.move_stack)) % 2 == 0:
-                            lowest_player = "White"
-                        else:
-                            lowest_player = "Black"
-                        
-                        # Calculate move number for display
+                    ply_count = len(list(board.move_stack))
+                    
+                    # Determine whose clock this is (the player who JUST moved)
+                    if ply_count % 2 == 1:
+                        # Odd ply count = White just moved, this is White's clock
+                        player_side = "White"
+                        last_fired_time = white_last_fired_time
+                    else:
+                        # Even ply count = Black just moved, this is Black's clock
+                        player_side = "Black"
+                        last_fired_time = black_last_fired_time
+                    
+                    # Check if we should fire a reminder
+                    should_fire = False
+                    reminder_key = f"{gid}:{player_side}"
+                    
+                    if reminder_key not in self.shown_reminders:
+                        # First time below threshold for this player
+                        if seconds < threshold:
+                            should_fire = True
+                    else:
+                        # Already fired, check if clock reset (time control)
+                        # Clock increased by 600+ seconds indicates time control
+                        if seconds >= last_fired_time + self.time_control_reset_threshold:
+                            # Reset allowed - can fire again if below threshold
+                            if seconds < threshold:
+                                should_fire = True
+                    
+                    if should_fire:
                         from math import ceil
-                        move_num = ceil(move_counter / 2)
-                        san_move_formatted = f"{move_num}...{san_move}" if move_counter % 2 == 0 else f"{move_num}.{san_move}"
+                        move_num = ceil(ply_count / 2)
+                        san_move_formatted = f"{move_num}...{san_move}" if ply_count % 2 == 0 else f"{move_num}.{san_move}"
                         
-                        lowest_move_counter = move_counter
-                        lowest_san_move = san_move_formatted
+                        results.append((player_side, ply_count, san_move_formatted, seconds))
+                        self.shown_reminders.add(reminder_key)
+                        
+                        # Update last fired time for this player
+                        if player_side == "White":
+                            white_last_fired_time = seconds
+                        else:
+                            black_last_fired_time = seconds
         
-        return lowest_time, lowest_player or "", lowest_move_counter, lowest_san_move
+        return results
 
     def check(self, game: Any, claims_model: Any, threshold_seconds: int = None, **kwargs) -> List[ClaimEntry]:
         """Check a single game for low time reminder."""
@@ -92,21 +138,21 @@ class LowTimeChecker(BaseChecker):
         entries = []
         threshold = threshold_seconds or self.default_threshold_seconds
 
-        lowest_time, player_side, move_counter, san_move_formatted = self.get_lowest_clock(game)
+        board_number = claims_model.get_board_number(game)
+        gid = claims_model.controller.make_game_id(game)
 
-        if lowest_time <= threshold and lowest_time > 0:
-            board_number = claims_model.get_board_number(game)
-            gid = claims_model.controller.make_game_id(game)
+        reminders = self.find_first_low_time(game, threshold, gid)
 
+        for player_side, ply_count, san_move_formatted, remaining_seconds in reminders:
             entry = ClaimEntry(
                 type=ClaimType.LOW_TIME_REMINDER,
                 board_number=board_number,
                 players=get_players(game),
-                move=f"{san_move_formatted} ({lowest_time}s left)",
+                move=f"{san_move_formatted} ({remaining_seconds}s left)",
                 game_index=0,
-                move_counter=move_counter,
+                move_counter=ply_count,  # Store ply count for correct Board Viewer navigation
                 start_move_counter=0,
-                comment=f"Lowest clock: {player_side} with {lowest_time} seconds",
+                comment=f"Low time warning: {player_side} with {remaining_seconds} seconds",
                 game_id=gid,
             )
             entries.append(entry)
@@ -122,32 +168,24 @@ class LowTimeChecker(BaseChecker):
             games: List of chess.pgn.Game objects
             claims_model: The Claims model instance
             threshold_seconds: Time threshold in seconds (default: 120)
-            fired_dict: Dict tracking which game indices already fired
+            fired_dict: Dict tracking which game indices already fired (not used, kept for compatibility)
         
         Returns:
-            Tuple of (list of ClaimEntry, updated fired_dict)
+            Tuple of (list of ClaimEntry, updated shown_reminders set)
         """
         if not self.enabled:
-            return [], fired_dict or {}
+            return [], self.shown_reminders
 
         entries = []
-        fired_dict = fired_dict or {}
         threshold = threshold_seconds or self.default_threshold_seconds
 
         for idx, game in enumerate(games):
-            already = fired_dict.get(idx, False)
-            
-            if already:
-                continue
-
             game_entries = self.check(game, claims_model, threshold)
             
-            if game_entries:
-                fired_dict[idx] = True
-                # Update game_index to match batch context
-                for entry in game_entries:
-                    entry_dict = entry.__dict__.copy()
-                    entry_dict['game_index'] = idx
-                    entries.append(ClaimEntry(**entry_dict))
+            # Update game_index to match batch context
+            for entry in game_entries:
+                entry_dict = entry.__dict__.copy()
+                entry_dict['game_index'] = idx
+                entries.append(ClaimEntry(**entry_dict))
 
-        return entries, fired_dict
+        return entries, self.shown_reminders

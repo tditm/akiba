@@ -1,8 +1,8 @@
 # Akiba - Chess Arbiter Monitoring System 🏆
 
-**Version:** 1.0 | **License:** GPL-3.0
+**Version:** 1.1 | **License:** GPL-3.0
 
-An automated tool for monitoring claims and reminders in chess games, designed for arbiters.
+An automated tool for monitoring claims, reminders, and fair-play indicators in chess games, designed specifically for arbiters.
 
 ## ✨ Features
 
@@ -11,6 +11,7 @@ An automated tool for monitoring claims and reminders in chess games, designed f
 - 📊 **Board Viewer** – visualization of key positions with green/red frame indicators
 - 🔔 **Notifications** – reminders for time control, low time, scoresheet, Sofia rule, illegal move, 2-fold, 45-move
 - 📥 **Claims & Reminders Ack** – allowing users to acknowledge and clear resolved claims from the active list
+- 🛡️ **Fair-Play Analysis** – preliminary fair-play assessment
 
 ## 🚀 Quick Start
 
@@ -23,7 +24,7 @@ An automated tool for monitoring claims and reminders in chess games, designed f
 
 - [EN English User Documentation](USER_DOCUMENTATION.md)
 - [PL Dokumentacja Polska](DOKUMENTACJA_UZYTKOWNIKA.md)
-- [EN Release 1.0 Notes](https://github.com/tditm/akiba/releases/tag/1.0)
+- [EN Release 1.1 Notes](https://github.com/tditm/akiba/releases/tag/1.1)
 
 ## 🛠️ Requirements
 
@@ -47,5 +48,5 @@ Refactored and modernized using AI-assisted development workflows to ensure high
 GNU General Public License v3.0 – see the [LICENSE](LICENSE) file.
 
 ---
-**Akiba v1.0** - Chess Arbiter Monitoring System
+**Akiba v1.1** - Chess Arbiter Monitoring System
 An open-source tool for chess arbiters.

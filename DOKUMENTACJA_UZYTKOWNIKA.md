@@ -1,5 +1,5 @@
 # Akiba – Chess Arbiter Monitoring System
-## Dokumentacja Użytkownika (w wersji 1.0)
+## Dokumentacja Użytkownika (Wersja 1.1)
 
 ---
 
@@ -14,161 +14,143 @@
 7. [Powiadomienia](#powiadomienia)
 8. [Pozostałe Przyciski](#pozostałe-przyciski)
 9. [Board Viewer – Wizualizacja Partii](#board-viewer–wizualizacja-partii)
+10. [Analiza Fair-Play](#analiza-fair-play)
 
 ---
 
 ## Wprowadzenie
 
-**Akiba** to Chess Arbiter Monitoring System dla sędziów szachowych, który automatycznie analizuje partie szachowe i wykrywa sytuacje związane z roszczeniami (claims) oraz przypomnieniami (reminders). Program obsługuje partie z różnych źródeł: plików lokalnych, stron internetowych oraz platformy LiveChessCloud.
+**Akiba** to system monitorowania dla sędziów szachowych, który automatycznie analizuje partie szachowe w czasie rzeczywistym i ostrzega sędziów o ważnych sytuacjach wymagających uwagi. Traktuj go jako niezależne narzędzie, oparte na live transmisjach szachowych, które pomaga sędziom podejmować świadome decyzje podczas turniejów.
 
 ---
 
 ## Źródła Danych
 
-Aplikacja obsługuje **trzy typy źródeł**, które można dodać w oknie "Add Sources". **Wszystkie źródła mają funkcjonalność LIVE** - program monitoruje je co 4 sekundy:
+Aplikacja obsługuje **trzy typy źródeł**, które można dodać w oknie dialogowym "Add Sources". **Wszystkie źródła mają funkcjonalność LIVE** - program monitoruje je co 4 sekundy:
 
-### 1. Web URL (Opcja 0)
+### 1. Web URL
 - Adres URL do pliku PGN na stronie internetowej  
 - Przykład: `https://example.com/tournament/games.pgn`
 - **LIVE:** Program pobiera plik **co 4 sekundy** w czasie rzeczywistym
-- Idealne dla turniejów live, gdzie strona jest aktualizowana na bieżąco
+- Idealne dla live turniejów, gdzie strona jest aktualizowana ciągle
 
-### 2. Local File (Opcja 1)
-- Ścieżka do pliku PGN na komputerze
+### 2. Local File
+- Ścieżka do pliku PGN na Twoim komputerze
 - Przykład: `C:\Tournaments\my_games.pgn`
-- **LIVE:** Program sprawdza rozmiar pliku **co 4 sekundy** - jeśli się zmieni, odczytuje ponownie
+- **LIVE:** Program sprawdza rozmiar pliku **co 4 sekundy** - jeśli się zmieni, ponownie odczytuje plik
 - Idealne gdy zewnętrzny program zapisuje partie do pliku w czasie rzeczywistym
 
-### 3. LiveChessCloud Live (Opcja 2)
+### 3. LiveChessCloud Live
 - Link do turnieju na platformie LiveChessCloud
 - Przykład: `https://view.livechesscloud.com/#abcd1234-....`
 - **LIVE:** Program pobiera partie z turnieju **co 4 sekundy** w czasie rzeczywistym (polling)
-- **Numer rundy:** Domyślnie runda 1, można wybrać dowolną rundę (1-9999)
-- Każda runda jest zapisywana w osobnym pliku PGN
+- **Numer rundy:** Domyślnie runda 1, możesz wybrać dowolną rundę
+- Każda runda jest zapisywana do osobnego pliku PGN
 
-**Podsumowanie LIVE:** Wszystkie źródła są monitorowane co 4 sekundy - Web URL i LiveChessCloud pobierają dane ponownie, Local File sprawdza czy rozmiar się zmienił.
+**Podsumowanie LIVE:** Wszystkie źródła są monitorowane co 4 sekundy - Web URL i LiveChessCloud ponownie pobierają dane, Local File sprawdza czy rozmiar się zmienił.
 
 ---
 
 ## Claims (Roszczenia)
 
-**Claims** to sytuacje, w których gracz może **złożyć oficjalne roszczenie** zgodnie z przepisami FIDE. Program automatycznie wykrywa następujące typy claims:
+**Claims** to sytuacje, w których gra szachowa kończy się natychmiast lub gracz może **złożyć oficjalne roszczenie** zgodnie z przepisami FIDE. Program automatycznie wykrywa następujące typy claims:
 
 ### Rodzaje Claims
 
 | Typ Roszczenia | Opis | Kiedy się pojawia |
 |----------------|------|-------------------|
-| **3-fold repetition** | Trzykrotne powtórzenie pozycji | Gdy ta sama pozycja na szachownicy występuje po raz trzeci |
-| **5-fold repetition** | Pięciokrotne powtórzenie pozycji | Gdy ta sama pozycja na szachownicy występuje po raz piąty |
-| **50-move rule** | Zasada 50 ruchów | Gdy 50 ruchów minęło bez ruchu pionem i bez bicia (claimable draw) |
-| **75-move rule** | Zasada 75 ruchów | Gdy 75 ruchów minęło bez ruchu pionem i bez bicia (automatyczny koniec gry) |
-| **Stalemate** | Pat | Gdy gracz nie ma legalnego ruchu, ale nie jest w szachu |
-| **Checkmate** | Mata | Gdy gracz jest w szach-macie |
-| **Dead position** | Pozycja martwa | Gdy żaden z graczy nie może dać mata (np. król vs król) |
+| **3-fold repetition** | Pozycja powtórzona trzy razy | Gdy ta sama pozycja na szachownicy występuje po raz trzeci (reklamacja remisu) |
+| **5-fold repetition** | Pozycja powtórzona pięć razy | Gdy ta sama pozycja na szachownicy występuje po raz piąty (automatyczny koniec gry) |
+| **50-move rule** | Zasada 50 ruchów | Po 50 ruchach bez ruchu pionem lub bicia (reklamacja remisu) |
+| **75-move rule** | Zasada 75 ruchów | Po 75 ruchach bez ruchu pionem lub bicia (automatyczny koniec gry) |
+| **Stalemate** | Pat | Gdy gracz nie ma legalnego ruchu, ale nie jest w szachu (automatyczny koniec gry) |
+| **Checkmate** | Szach-mat | Gdy gracz jest zaszachowany (automatyczny koniec gry) |
+| **Dead position** | Pozycja martwa | Gdy żaden z graczy nie może dać mata (automatyczny koniec gry) |
 
-### Jak działa wykrywanie Claims?
+### Jak Działa Wykrywanie Claims?
 - Program skanuje partie **ruch po ruchu**
 - Każde roszczenie jest rejestrowane z:
-  - Numerem stołu (board number)
-  - Nazwami graczy
-  - Numerem ruchu, gdy roszczenie powstało
-  - Komentarzem wyjaśniającym (np. "First counting move: X")
+  - Numerem stołu
+  - Nazwiskami graczy
+  - Numerem ruchu, gdy roszczenie wystąpiło
+  - Komentarzem wyjaśniającym
 
 ---
 
 ## Reminders (Przypomnienia)
 
-**Reminders** to **ostrzeżenia informacyjne**, które pomagają sędziemu monitorować sytuacje w turnieju. Nie są to oficjalne roszczenia, ale warto o nich wiedzieć.
+**Reminders** to ostrzeżenia informacyjne, które pomagają sędziemu przygotować się na nadchodzące sytuacje lub informują o możliwych naruszeniach przepisów, które muszą zostać zweryfikowane przez sędziego. NIE kończą one gry automatycznie, ale wymagają uwagi sędziego.
 
 ### Rodzaje Reminders
 
 | Typ Przypomnienia | Opis | Kiedy się pojawia |
 |-------------------|------|-------------------|
-| **2-fold repetition** | Dwukrotne powtórzenie pozycji (ostrzeżenie przed 3-fold) | Gdy ta sama pozycja występuje po raz drugi – **ostrzeżenie:** "uważaj, zaraz może być 3-fold claim" |
-| **45-move reminder** | Przypomnienie przed zasadą 50-ruchową | Gdy 45 ruchów minęło bez ruchu pionem i bez bicia – **ostrzeżenie:** "za 5 ruchów będzie można złożyć 50-move claim" |
-| **Time control** | Kontrola czasu nadchodząca | Osiągnięcie punktu kontrolnego po xx ruchach – sędzia powinien być przy szachownicy (np. wykonali ruch 38, za dwa ruchy kontrola 40) |
-| **Low on time** | Niski czas | Gracz ma mniej sekund niż ustawiony próg (niedoczas) – **ostrzeżenie:** "zawodnik może zaraz przekroczyć czas" |
-| **Flag fall reminder** | Flaga opadła (koniec czasu) | Gdy czas gracza osiągnął 0:00:00 – **alert:** "sprawdź czy flaga nie opadła na tej szachownicy!" |
-| **First illegal move** | Pierwszy nielegalny ruch w partii | Wykryto nielegalny ruch w analizie PGN – **alert:** "natychmiast sprawdź sytuację na szachownicy - może być błąd w wykonaniu ruchu lub zapisie" |
-| **Scoresheet change** | Zmiana zapisu partii | Osiągnięcie punktu kontrolnego po xx ruchach (np. 60) – **ostrzeżenie:** "przynieś nowe zapisy" |
-| **Sofia rule violation** | Naruszenie reguł Sofii | Remis zgłoszony przed ustawionym limitem ruchu (domyślnie 30) – po 30. ruchu remis nie narusza przepisów |
+| **Two fold repetition** | Pozycja powtórzona dwukrotnie (ostrzeżenie przed 3-fold) | Gdy ta sama pozycja występuje po raz drugi - **Ostrzeżenie:** "Uważaj, gracz może wkrótce zgłosić 3-fold repetition" |
+| **45-move reminder** | Ostrzeżenie przed zasadą 50-ruchową | Po 45 ruchach bez ruchu pionem lub bicia - **Ostrzeżenie:** "Za 5 ruchów będzie możliwe zgłoszenie 50-move claim" |
+| **Time control warning** | Nadchodząca kontrola czasu | 2 ruchy przed osiągnięciem kontroli czasu (np. przy ruchu 38 dla kontroli przy ruchu 40) - "Uważaj, sędzia powinien być przy szachownicy" |
+| **Low on time** | Gracz ma mało czasu pozostałego | Gdy gracz ma mniej czasu niż Twój ustawiony próg - "Ostrzeżenie, gracz może wkrótce przekroczyć czas" |
+| **Flag fall reminder** | Wykryto opadnięcie chorągiewki (czas minął) | Gdy czas gracza osiąga 0:00:00 - **Alert:** "Sprawdź czy zawodnik nie przekroczył czasu na tej szachownicy!" |
+| **Illegal move warning** | Wykryto nielegalny ruch w grze | Gdy program wykryje nielegalny ruch w PGN - **Alert:** "Natychmiast sprawdź sytuację na szachownicy - może być nielegalny ruch lub błąd w zapisie" |
+| **Scoresheet change warning** | Blankiet zapisu partii prawie pełny | Gdy gracze zapisali już rubryki dla wszystkich ruchów (np. 55 ruchów) - "Przynieś nowe zapisy" |
+| **Sofia rule violation** | Nielegalna zgoda na remis | Remis dokonany przed ruchem 30 (domyślne ustawienie, regulowane przez sędziego) |
+| **Possible incorrect result** | Ogłoszony wynik partii nie pasuje do oceny Stockfisha | Gdy zapisany wynik w nagłówkach PGN (1-0, 0-1, 1/2-1/2) znacznie różni się od oceny silnika dla pozycji końcowej - **Alert:** "Sprawdź wynik partii - ocena pozycji sugeruje inny rezultat" |
 
-### Ważne Informacje:
-- **2-fold:** Ostrzeżenie, że pozycja powtórzyła się dwukrotnie. Sędzia powinien zwrócić uwagę - zawodnik może wkrótce zgłosić 3-fold repetition.
-- **45-move reminder:** To nie jest sama zasada 50-ruchowa, ale ostrzeżenie, aby przygotować się na nią. Po 45 ruchach bez bicia i ruchu pionem, tylko 5 ruchów do claimable draw.
-- **Time control:** Przypomnienie o nadchodzącej kontroli czasu. Jeśli kontrola jest po 40 ruchach a obecnie jest ruch 38, sędzia powinien być gotowy!
-- **Low on time:** Oznacza "niedoczas" - gracz ma mniej sekund niż ustawiony próg. Sędzia powinien sprawdzić czy zawodnik może zaraz przekroczyć czas.
-- **Flag fall:** Czas się skończył (0:00:00). To jest co innego niż "low on time" - to oznacza, że zegar faktycznie pokazał zero!
-- **Illegal move:** Program wykrył nielegalny ruch w analizie PGN. Natychmiast sprawdź czy nie było błędu w wykonaniu ruchu lub notacji.
-- **Scoresheet change:** Przypomnienie, że gracze są w trakcie wypełniania zapisów (zazwyczaj 60 pól). Sędzia powinien przynieść nowy papier.
-- **Sofia rule:** Tylko zgłasza propozycje remisu przed 30. ruchem. Propozycje remisu po 30. ruchu nie naruszają przepisów.
+---
+
+## Analiza Fair-Play
+
+**Analiza Fair-Play** to narzędzie do wstępnej oceny, które pomaga sędziom zidentyfikować potencjalnie podejrzane partie. System analizuje ruchy każdego gracza niezależnie i przypisuje jeden z trzech poziomów ryzyka:
+
+### Poziomy Ryzyka
+
+| Poziom | Kolor | Akcja |
+|--------|-------|-------|
+| **LOW** | 🟢 Zielony | Brak |
+| **MEDIUM** | 🟠 Pomarańczowy | Zalecana rutynowa obserwacja |
+| **HIGH** | 🔴 Czerwony | Zalecana dalsza weryfikacja |
+
+### Jak Uruchomić Analizę Fair-Play
+
+1. Otwórz plik PGN w Board Viewer
+2. Kliknij prawym przyciskiem myszy na dowolną partię na liście gier
+3. Wybierz **"Fair-Play Analysis"** z menu kontekstowego
+4. Zobacz wyniki z wskaźnikami poziomu ryzyka dla Białych i Czarnych
+
+### Wyświetlane Wyniki
+
+Analiza pokazuje osobne wyniki dla każdego gracza w tym:
+- **T1 (Top Match Rate)** - Procent ruchów zgodnych z #1 wyborem Stockfisha
+- **BR (Blunder Resistance)** - Odporność na błędy (0-100%)
+- **APL (Average Point Loss)** - Średni błąd w punktach
+- **SPI (Sigmoidal Precision Index)** - Sigmoidalny indeks precyzji (~50 = norma ludzka)
+
+Poziom ryzyka jest określany przez progi T1/BR LUB SPI, whichever triggers first.
+
+🛡️ **SPI (Sigmoidal Precision Index) — Beta Version**
+
+This tool is intended strictly for arbiters and is currently in its scaling phase. The data below does not imply any rule violation. Drawing conclusions from a single game carries high statistical risk; therefore, system outputs, if any, should be treated solely as suggestions for further routine actions.
 
 ---
 
 ## Różnice między Claims i Reminders
 
-| Cecha | Claims (Roszczenia) | Reminders (Przypomnienia) |
-|-------|---------------------|---------------------------|
-| **Status** | **OBLIGATORYJNE** - nie można wyłączyć, zawsze aktywny | **OPCJONALNE** - można włączyć/wyłączyć w ustawieniach |
-| **Cel** | Wykrywanie oficjalnych roszczeń zgodnie z przepisami FIDE | Pomoc sędziemu w monitorowaniu sytuacji na turnieju |
-| **Konsekwencje** | Większość powoduje natychmiastowy koniec gry (checkmate, stalemate, dead position, 75-move, non-legal). 3-fold i 50-move wymagają weryfikacji sędziego z udziałem zawodników. | Tylko informacja ostrzegawcza - nie kończy gry automatycznie |
-| **Wyłączalność** | ❌ NIE - claimsy są zawsze aktywne | ✅ TAK - można dezaktywować reminders |
-
-### Kluczowe różnice w praktyce:
-
-**Claims (zawsze aktywne):**
-- Wykrywają sytuacje kończące partię zgodnie z przepisami FIDE
-- Nie można ich wyłączyć - są integralną częścią systemu monitorowania
-- Przykłady: Checkmate, Stalemate, Dead Position, 75-move rule, 3-fold repetition, 50-move rule
-
-**Reminders (opcjonalne):**
-- Pomagają sędziemu być przygotowanym na nadchodzące sytuacje
-- Można je wyłączyć jeśli nie są potrzebne w danym turnieju
-- Przykłady: 45-move reminder (ostrzeżenie przed 50-moves), Time control approaching, Low on time, Scoresheet change
-
-### Przykład użycia:
-
-| Sytuacja | Typ | Działanie sędziego |
-|----------|-----|-------------------|
-| Zawodnik zgłasza remis po powtórzeniu pozycji (3-fold) | **Claim** | Sprawdź pozycję, potwierdź lub odrzuć roszczenie |
-| Program pokazuje "45 moves played" | **Reminder** | Bądź czujny, za 5 ruchów zawodnik będzie mógł zgłosić remis z 50-move rule |
-| Zawodnik ma na zegarze mniej czasu niż próg (np. <30s) | **Reminder** | Podejdź do stołu - zawodnik może niedługo przekroczyć czas |
-| Wykryto nielegalny ruch w partii | **Claim** | Sprawdź co się stało - zawodnik mógł pomylić ruch lub jest błąd w zapisie PGN |
+| Cecha | Claims | Reminders |
+|-------|--------|-----------|
+| **Status** | **OBOWIĄZKOWE** - nie można wyłączyć, zawsze aktywne | **OPCJONALNE** - można włączyć/wyłączyć w ustawieniach |
+| **Cel** | Wykrywanie potencjalnych roszczeń lub automatycznych końcówek gry zgodnie z przepisami FIDE | Pomoc sędziemu w monitorowaniu sytuacji turniejowych |
+| **Częstotliwość** | Powtarza się tak długo, jak trwa warunek | Jednorazowo dla konkretnego typu (nie powtarza się) |
+| **Konsekwencje** | Większość powoduje natychmiastowy koniec gry (checkmate, stalemate, dead position, 75-move, 5-fold). 3-fold i 50-move wymagają weryfikacji sędziego z udziałem graczy. | Tylko ostrzeżenie informacyjne - NIE kończy gry automatycznie |
 
 ---
 
 ## System ACK (Acknowledgment)
 
-System ACK służy do **oznaczania roszczeń jako "rozstrzygnięte"**.
+System ACK pozwala oznaczyć claims lub reminders jako "rozwiązane" po ich obsłudze. Pomaga to utrzymać czystą tabelę wspisów i skupić się na aktywnych problemach.
 
-### Jak działa?
-1. Gdy roszczenie zostaje wykryte, pojawia się w tabeli claims
-2. Po rozpatrzeniu sprawy możesz oznaczyć je jako **ACK** (acknowledged)
-3. Roścenie ACK pozostaje w systemie dla historii i można je przywrócić przyciskiem **"Restore Resolved Claims"**
-
-### Przykład użycia:
-- Zawodnicy zgłosili 3-fold repetition → sędzia przychodzi z blankietami zapisu, rozstrzyga sprawę → oznaczasz jako ACK ✅
-- Zawodnicy minęli kontrolę czasu (50-move) bez złożenia roszczenia → sprawa nieaktualna → oznaczasz jako ACK ✅  
-- Zawodnik nie złożył reklamacji na podstawie 3-fold repetition w odpowiednim momencie → sprawa nieaktualna → oznaczasz jako ACK ✅
-
-**Uwaga:** Roścenia ACK można przywrócić przyciskiem **"Restore Resolved Claims"** jeśli okaże się, że jednak wymagają uwagi.
-
----
-
-## Powiadomienia
-
-Aplikacja posiada system **powiadomień systemowych** Windows/Mac:
-
-### Jak zarządzać powiadomieniami?
-- Menu **Options → Enable Windows/Mac notifications** (domyślnie włączone)
-- Po wyłączeniu żadne claims i reminders nie wyświetlą się jako powiadomienie
-
-### Rodzaje powiadomień:
-- Low on time reminder
-- Flag fall reminder  
-- Time control approaching
-- Scoresheet change warning
-- Sofia rule violation
+### Jak Działa?
+1. Gdy claim lub reminder jest wyzwolony, pojawia się w tabeli claims
+2. Po rozwiązaniu sytuacji możesz oznaczyć go jako **ACK** (acknowledged) ✅, używając prawego przycisku myszy
+3. Rozwiązane (ACK) ✅ claims i reminders mogą być usunięte z tabeli claims za pomocą przycisku **"Clear Resolved (Claims)"**
 
 ---
 
@@ -177,85 +159,106 @@ Aplikacja posiada system **powiadomień systemowych** Windows/Mac:
 W głównym oknie znajdują się trzy główne przyciski:
 
 ### Start (Niebieski)
-- **Funkcja:** Rozpoczyna skanowanie partii i pobieranie danych ze źródeł
-- Dla wszystkich źródeł uruchamia automatyczne odświeżanie co 4 sekundy
+- **Funkcja:** Rozpoczyna skanowanie gier i pobieranie danych ze źródeł
+- Dla wszystkich źródeł włącza automatyczne odświeżanie co 4 sekundy
 
 ### Stop (Czerwony)  
-- Przerywa skanowanie. Wpisy w tabeli ze statusem ACK nie pojawią się ponownie po naciśnieciu start.
+- Zatrzymuje skanowanie
+
+### Przycisk Clear Resolved Claims
+- Czyści wszystkie potwierdzone claims i reminders z tabeli
+
+---
+
+## Powiadomienia
+
+Aplikacja zawiera system powiadomień, aby ostrzec sędziów o ważnych zdarzeniach:
+
+### Rodzaje Powiadomień
+
+| Typ Powiadomienia | Kiedy się aktywuje | Cel |
+|-------------------|---------------------|-----|
+| **Wykryto roszczenie** | Gdy wykryta zostanie sytuacja roszczenia (3-fold, 50-move, checkmate itp.) | Ostrzeżenie sędziego o weryfikacji i obsłudze roszczenia |
+| **Aktywowano przypomnienie** | Gdy spełniony jest warunek przypominania (nielegalny ruch, niski czas, naruszenie reguł Sofii) | Informacja sędziego o sytuacjach wymagających uwagi |
+
+### Zachowanie Powiadomień
+- Powiadomienia pojawiają się jako alerty systemowe wymagające potwierdzenia
+- Alert dźwiękowy można skonfigurować w ustawieniach aplikacji
+- Krytyczne powiadomienia (checkmate, flag fall) mają wyższy priorytet
+- Powiadomienia mogą być włączone lub wyłączone
 
 ---
 
 ## Board Viewer – Wizualizacja Partii
 
-Board Viewer to główny interfejs do przeglądania i analizowania partii. Oto jak interpretować oznaczenia wizualne:
+Board Viewer to główny interfejs do przeglądania i analizowania gier. Oto jak interpretować oznaczenia wizualne:
 
 ### Kolory i Oznaczenia w Board Viewer
 
 | Element | Kolor/Znaczenie | Kiedy się pojawia |
 |---------|-----------------|-------------------|
-| **Zielona ramka szachownicy** | Pozycja powtarza się po raz trzeci lub piąty (3-fold/5-fold repetition snapshot) | Gdy pozycja na szachownicy występuje po raz 3-ci lub 5-ty – kluczowa pozycja dla roszczenia o powtórzenie |
-| **Czerwona ramka szachownicy** | Nielegalny ruch wykryty w partii | Tylko wtedy, gdy jesteś na ostatnim poprawnym ruchu przed nielegalnym ruchem |
-| **Żółte podświetlenie szachownicy** | Ostatni wykonany ruch | Zawsze po wykonaniu ruchu – ostatni ruch jest zaznaczony żółtym kolorem pola docelowego |
-| **Żółte tło ruchu w zapisie PGN** | Aktualnie zaznaczony ruch | Po kliknięciu na konkretny ruch w zapisie poniżej szachownicy |
+| **Zielona ramka szachownicy** | Pozycja powtórzona 3. lub 5. raz (3-fold/5-fold repetition snapshot) | Gdy pozycja na szachownicy występuje po raz 3-ci lub 5-ty |
+| **Niebieska ramka szachownicy** | 50 lub 75 ruchów od nieodwracalnego ruchu (50-moves/75-moves snapshot) | Gdy minęło 50 lub 75 ruchów od ostatniego ruchu pionem lub bicia |
+| **Czerwona ramka szachownicy** | Wykryto nielegalny ruch w grze | Wskazuje pozycję po ostatnim legalnym ruchu (nielegalny ruch jest dodany w zapisie) |
+| **Żółte podświetlenie szachownicy** | Ostatni wykonany ruch | Zawsze po wykonaniu ruchu - pole docelowe ostatniego ruchu jest podświetlone na żółto |
 
-### Gdzie są pokazywane informacje?
+### Kolory i Oznaczenia w zapisie partii (scoresheet)
 
-#### 1. Szachownica (lewa strona)
-- Pokazuje aktualną pozycję po wybranym ruchu
-- **Zielona ramka** = 3-fold/5-fold repetition snapshot
-- **Czerwona ramka** = nielegalny ruch w partii (oglądanie ostatniej poprawnej pozycji)
+| Element | Kolor/Znaczenie | Kiedy się pojawia |
+|---------|-----------------|-------------------|
+| **Zielone oznaczenie tekstu** | Pozycja powtórzona 3. lub 5. raz (konkretne ruchy) | Gdy pozycja na szachownicy występuje po raz 3-ci lub 5-ty |
+| **Niebieskie oznaczenie tekstu** | 50 lub 75 ruchów od nieodwracalnego ruchu (konkretne ruchy) | Gdy minęło 50 lub 75 ruchów od ostatniego ruchu pionem lub bicia |
+| **Czerwone oznaczenie tekstu** | Wykryto nielegalny ruch w grze (konkretny ruch) | Gdy wykonano nielegalny ruch lub wystąpił błąd zapisu |
+| **Żółte tło** | Obecnie zaznaczony ruch | Po kliknięciu na konkretny ruch w notacji poniżej szachownicy |
 
-#### 2. Zapis partii PGN (prawa strona pod szachownicą)
-- Lista wszystkich ruchów w formacie algebraicznym
-- Kliknięcie na dowolnym ruchu przenosi szachownicę do tej pozycji
-- **Żółte tło** = aktualnie zaznaczony ruch
+### Informacje o Czasie (pod nazwami graczy)
 
-#### 3. Informacje o czasie (pod nazwami graczy)
-- Format: `Nazwisko (Czas)` 
-- Pokazuje czas pozostały po **ostatnim ruchu** danego gracza (statyczny)
-- Przykład: `Karpov, A. (00:15:32) – Kasparov, G. (00:42:18)`
-- **Czas namysłu w ostatnim ruchu:** Pokazuje ile czasu gracz myślał nad swoim ostatnim ruchem
+- Format: `Nazwisko (Pozostały Czas)` + `Ostatni ruch (Czas namysłu)`
+- Pokazuje pozostały czas po ostatnim ruchu każdego gracza **pozostały czas** (czas jest statyczny)
+- Pokazuje jak długo gracz myślał nad swoim ostatnim ruchem **czas namysłu w ostatnim ruchu**
 
 ### Nawigacja w Board Viewer
 
 #### Przyciski nawigacyjne:
 | Przycisk | Funkcja |
 |----------|---------|
-| **⏮** | Pierwsza gra w liście / Początek obecnej gry |
-| **◀** | Poprzednia gra / Previous ruch w grze |
-| **▶** | Następna gra / Next ruch w grze |
-| **⏭** | Ostatnia gra w liście / Koniec obecnej gry |
+| **⏮** | Pierwsza gra na liście / Początek obecnej gry |
+| **◀** | Poprzednia gra / Poprzedni ruch w grze |
+| **▶** | Następna gra / Następny ruch w grze |
+| **⏭** | Ostatnia gra na liście / Koniec obecnej gry |
 
 #### Nawigacja klawiaturą:
-- Możesz używać strzałek **lewo/prawo** do nawigacji między partiami (gdy lista jest aktywna) lub ruchami (gdy szachownica/PGN jest aktywna)
-- Strzałki **góra/dół** do przewijania listy partii
+- Użyj **strzałek lewo/prawo** do nawigacji między grami (gdy lista jest aktywna) lub ruchami (gdy szachownica/PGN jest aktywna)
+- Użyj **strzałek góra/dół** do przewijania listy gier
 
-### Filtrowanie gier
+### Filtrowanie Gier
 
 - **Pole wyszukiwania:** Wpisz nazwisko gracza lub numer stołu (np. "12")
-- **Checkbox "Show only active games":** Pokazuje tylko partie zakończone wynikiem `*` (trwające)
+- **Checkbox "Show only active games":** Pokazuje tylko gry z wynikiem `*` (trwające)
 
 ---
 
 ## Podsumowanie
 
 Akiba to potężne narzędzie dla sędziów szachowych, które:
-- ✅ Automatycznie wykrywa roszczenia i przypomnienia w partiach
-- ✅ Obsługuje wiele źródeł danych jednocześnie (URL, lokalne pliki, LiveChessCloud)
-- ✅ Łączy partie z różnych źródeł do jednego pliku PGN
+- ✅ Automatycznie wykrywa claims i reminders w grach
+- ✅ Obsługuje wiele źródeł danych jednocześnie (URL, pliki lokalne, LiveChessCloud)
+- ✅ Łączy gry z różnych źródeł do jednego pliku PGN
 - ✅ Wizualizuje kluczowe pozycje (3-fold/5-fold snapshots, nielegalne ruchy)
-- ✅ Pozwala zarządzać rozstrzygniętymi roszczeniami przez system ACK
-- ✅ Posiada powiadomienia systemowe dla ważnych zdarzeń
+- ✅ Pozwala zarządzać rozwiązанными claims przez system ACK
+- ✅ Posiada system powiadomień dla ważnych zdarzeń
 
-W razie pytań lub problemów, sprawdź logi aplikacji w katalogu `%APPDATA%\Akiba\`.
+### Zbieranie Danych
 
-### Zbieranie Danych (Beacon)
+Pliki danych są przechowywane w katalogu `%APPDATA%\Akiba\`.
 
-Akiba jest wysyłanie anonimowe dane do Google Sheets w celu statystyk użytkowania. Każde kliknięcie przycisku "Start" powoduje wysłanie jednego wpisu z:
+**Beacons**
+
+Aplikacja Akiba wysyła anonimowe dane do Google Sheets w celu statystyk użytkowania. Każde kliknięcie przycisku "Start" wysyła jeden wpis zawierający:
 - **Device ID** - unikalny, anonimowy hash (nie można powiązać z Tobą)
-- **Wersja aplikacji** - np. "1.0"  
-- **System operacyjny** - np. "Windows 10"
+- **Wersja aplikacji** - np. "1.1"  
+- **System operacyjny** - np. "Windows 11"
 
-Dane są zbierane wyłącznie w celach statystycznych (ile osób używa programu, jakie wersje). Nie zbieramy żadnych danych osobowych ani informacji o partiach szachowych.
+Dane są zbierane wyłącznie w celach statystycznych (ile osób używa programu, które wersje). NIE zbieramy żadnych danych osobowych ani informacji o partiach szachowych.
 
 ---

@@ -25,12 +25,13 @@ class ClaimType(Enum):
     DEAD_POSITION_CLAIM = "Dead position"
     SCORESHEET_REMINDER = "Scoresheet change"
     TWO_FOLD_WARNING = "2-fold repetition"
-    FORTYFIVE_MOVES_WARNING = "45-move reminder"
+    FORTYFIVE_MOVES_WARNING = "45 moves"
     TIMECONTROL_REMINDER = "Time control"
     LOW_TIME_REMINDER = "Low on time"
-    FLAG_FALL_REMINDER = "Flag fall reminder"
+    FLAG_FALL_REMINDER = "Flag fall"
     SOFIA_RULE = "Sofia rule violation"
     ILLEGAL_MOVE = "First illegal move"
+    MISMATCHED_RESULT = "Result verification"
     
 @dataclass(frozen=True)
 class ClaimEntry:

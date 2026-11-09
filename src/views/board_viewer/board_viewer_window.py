@@ -6,9 +6,9 @@ import io
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QLabel, QTextBrowser, QPushButton, QLineEdit,
-    QSizePolicy, QCheckBox
+    QSizePolicy, QCheckBox, QMenu, QMessageBox
 )
-from PyQt6.QtGui import QPixmap, QPainter, QPen
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -22,7 +22,12 @@ from .pgn_helpers import (
     extract_clock,
     extract_emt,
     compute_repetition_snapshots,
+    compute_50move_snapshots,
 )
+
+from src.models.spi_worker import SPIWorker
+from src.views.dialogs.spi_dialog import SPIDialog
+from src.views.dialogs.spi_progress_dialog import SPIProgressDialog
 
 class BoardViewerWindow(QMainWindow):
     """
@@ -48,6 +53,13 @@ class BoardViewerWindow(QMainWindow):
         self.current_game_index = 0  # row index in filtered_games (0-based)
 
         self.repetition_snapshots = set()
+        self.fiftymove_snapshots = {}  # {ply_index: halfmove_clock} for 50-move positions
+        self.seventyfive_snapshots = {}  # {ply_index: halfmove_clock} for 75-move positions
+
+        # SPI analysis worker and dialog references
+        self._spi_worker = None
+        self._progress_dialog = None
+        self._results_dialog = None
 
         self._build_ui()
         self._load_games()
@@ -118,6 +130,7 @@ class BoardViewerWindow(QMainWindow):
             self.move_index = len(self.move_list)
 
             self._compute_repetition_snapshots()
+            self._compute_50move_snapshots()
 
             if hasattr(self, "game_list"):
                 self.game_list.setCurrentRow(row)
@@ -167,6 +180,10 @@ class BoardViewerWindow(QMainWindow):
         
         # NEW: Block automatic switching when viewing a claim
         self._loading_game = False  # Flag to prevent recursive calls
+        
+        # Enable context menu for right-click on game list
+        self.game_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.game_list.customContextMenuRequested.connect(self.show_spi_context_menu)
         
         self.game_list.currentRowChanged.connect(self.on_game_selected)
         left_layout.addWidget(self.game_list)
@@ -341,11 +358,6 @@ class BoardViewerWindow(QMainWindow):
 
         html_parts = []
         # Player surnames are already above the board, so we skip them in game notation
-        # html_parts.append(
-        #     f'<div style="font-size:14pt; font-weight:bold; margin-bottom:10px;">'
-        #     f'{white} – {black}'
-        #     f'</div>'
-        # )
         html_parts.append('<div style="height:8px;"></div>')
 
         ply_index = 0
@@ -359,32 +371,43 @@ class BoardViewerWindow(QMainWindow):
 
             # --- White Move ---
             white_move = moves[i]
-            white_san = board.san(white_move)
+            
+            try:
+                white_san = board.san(white_move)
+            except Exception:
+                # Illegal move - use UCI notation instead
+                white_san = white_move.uci()
+            
             board.push(white_move)
 
-            flags = []
+            flags_html = []
+            
+            # Define colors matching the default button colors from main.css
+            # Green (#4caf50) - Board Viewer button color for 3/5-fold repetition
+            # Blue (#1496e8) - Start Scan button color for 50/75-move rule
+            GREEN_PGN = "#4caf50"
+            BLUE_PGN = "#1496e8"
+            
             # 1. Handle position repetitions (Always as first flag)
             if base_label and ply_index in sorted_rep_indices:
                 rep_number = sorted_rep_indices.index(ply_index) + 1
-                flags.append(f"{base_label} {rep_number}/{total_reps} WHITE")
+                flags_html.append(f'<span style="color:{GREEN_PGN}; font-weight:bold;">({base_label} {rep_number}/{total_reps} WHITE)</span>')
             
-            # 2. Handle move counters (Fixed indentation - independent of repetitions!)
-            if board.halfmove_clock >= 150:
-                flags.append("75-move rule")
-            elif board.halfmove_clock >= 100:
-                flags.append("50-move rule")
+            # 2. Handle 50-move / 75-move rule (75-move overrides 50-move)
+            if ply_index in self.seventyfive_snapshots:
+                halfmove = self.seventyfive_snapshots[ply_index]
+                moves_count = halfmove // 2
+                flags_html.append(f'<span style="color:{BLUE_PGN}; font-weight:bold;">({moves_count}/75 moves)</span>')
+            elif ply_index in self.fiftymove_snapshots:
+                halfmove = self.fiftymove_snapshots[ply_index]
+                moves_count = halfmove // 2
+                flags_html.append(f'<span style="color:{BLUE_PGN}; font-weight:bold;">({moves_count}/50 moves)</span>')
 
-            flag_text = ""
-            if flags:
-                flag_text = (
-                    ' <span style="color:#008000; font-weight:bold;">('
-                    + ", ".join(flags)
-                    + ')</span>'
-                )
+            flag_text = ' '.join(flags_html)
 
             if highlight_index == ply_index:
                 html_parts.append(
-                    f'<span style="color:red; font-weight:bold;"><a href="move_{ply_index}">{white_san}</a></span>{flag_text} '
+                    f'<span style="background-color:#fff066; color:red; font-weight:bold;"><a href="move_{ply_index}">{white_san}</a></span>{flag_text} '
                 )
             else:
                 html_parts.append(
@@ -397,32 +420,37 @@ class BoardViewerWindow(QMainWindow):
             # --- Black's Move (Black Move) ---
             if i < len(moves):
                 black_move = moves[i]
-                black_san = board.san(black_move)
+                
+                try:
+                    black_san = board.san(black_move)
+                except Exception:
+                    # Illegal move - use UCI notation instead
+                    black_san = black_move.uci()
+                
                 board.push(black_move)
 
-                flags = []
+                flags_html = []
+                
                 # 1. Handle position repetitions
                 if base_label and ply_index in sorted_rep_indices:
                     rep_number = sorted_rep_indices.index(ply_index) + 1
-                    flags.append(f"{base_label} {rep_number}/{total_reps} BLACK")
+                    flags_html.append(f'<span style="color:{GREEN_PGN}; font-weight:bold;">({base_label} {rep_number}/{total_reps} BLACK)</span>')
                 
-                # 2. Handle move counters (Independent of repetitions)
-                if board.halfmove_clock >= 150:
-                    flags.append("75-move rule")
-                elif board.halfmove_clock >= 100:
-                    flags.append("50-move rule")
+                # 2. Handle 50-move / 75-move rule (75-move overrides 50-move)
+                if ply_index in self.seventyfive_snapshots:
+                    halfmove = self.seventyfive_snapshots[ply_index]
+                    moves_count = halfmove // 2
+                    flags_html.append(f'<span style="color:{BLUE_PGN}; font-weight:bold;">({moves_count}/75 moves)</span>')
+                elif ply_index in self.fiftymove_snapshots:
+                    halfmove = self.fiftymove_snapshots[ply_index]
+                    moves_count = halfmove // 2
+                    flags_html.append(f'<span style="color:{BLUE_PGN}; font-weight:bold;">({moves_count}/50 moves)</span>')
 
-                flag_text = ""
-                if flags:
-                    flag_text = (
-                        ' <span style="color:#008000; font-weight:bold;">('
-                        + ", ".join(flags)
-                        + ')</span>'
-                    )
+                flag_text = ' '.join(flags_html)
 
                 if highlight_index == ply_index:
                     html_parts.append(
-                        f'<span style="color:red; font-weight:bold;"><a href="move_{ply_index}">{black_san}</a></span>{flag_text} '
+                        f'<span style="background-color:#fff066; color:red; font-weight:bold;"><a href="move_{ply_index}">{black_san}</a></span>{flag_text} '
                     )
                 else:
                     html_parts.append(
@@ -436,6 +464,10 @@ class BoardViewerWindow(QMainWindow):
 
         # Show illegal move info at the END of PGN notation (after last move)
         has_errors = hasattr(game, 'errors') and game.errors
+        
+        # Define color for illegal moves matching Stop Scan button color from main.css
+        RED_PGN = "#f22618"
+        
         if has_errors:
             import re
             for error in game.errors:
@@ -445,14 +477,14 @@ class BoardViewerWindow(QMainWindow):
                 if san_match and fullmove_match:
                     illegal_san = san_match.group(1)
                     fullmove_num = int(fullmove_match.group(2))
-                    # Add at the end of moves with red color, like 3-fold notation
+                    # Add at the end of moves with red color (Stop Scan button color), like 3-fold notation
                     html_parts.append(
-                        f'<span style="color:red; font-weight:bold;"> [{fullmove_num}] {illegal_san} - illegal move!</span>'
+                        f'<span style="color:{RED_PGN}; font-weight:bold;"> [{fullmove_num}] {illegal_san} - illegal move!</span>'
                     )
                 elif san_match:
                     illegal_san = san_match.group(1)
                     html_parts.append(
-                        f'<span style="color:red; font-weight:bold;"> ... {illegal_san} - illegal move!</span>'
+                        f'<span style="color:{RED_PGN}; font-weight:bold;"> ... {illegal_san} - illegal move!</span>'
                     )
 
         return "".join(html_parts)
@@ -530,6 +562,11 @@ class BoardViewerWindow(QMainWindow):
         """Compute repetition snapshots using helper function."""
         self.repetition_snapshots = compute_repetition_snapshots(self.move_list)
 
+    def _compute_50move_snapshots(self):
+        """Compute 50-move and 75-move snapshots using helper function."""
+        self.fiftymove_snapshots = compute_50move_snapshots(self.move_list, threshold=100)
+        self.seventyfive_snapshots = compute_50move_snapshots(self.move_list, threshold=150)
+
     # ---------------------------------------------------------
     # CLOCK PARSING
     # ---------------------------------------------------------
@@ -576,20 +613,16 @@ class BoardViewerWindow(QMainWindow):
         board = self.current_board.copy()
 
         current_index = self.move_index - 1
-        is_snapshot = current_index in self.repetition_snapshots
-
-        border_color = Qt.GlobalColor.green if is_snapshot else Qt.GlobalColor.transparent
         
-        # Red border for illegal moves - ONLY when at the last valid position
-        has_illegal_move = hasattr(self.current_game, 'errors') and self.current_game.errors
-        if has_illegal_move and self.move_index == len(self.move_list):
-            # Show red border only when viewing the final (last valid) position
-            border_color = Qt.GlobalColor.red
-
         last_move = None
         for move in self.move_list[:self.move_index]:
             last_move = move
             board.push(move)
+        
+        # Check snapshot status AFTER pushing moves
+        is_snapshot = current_index in self.repetition_snapshots
+        is_50move_position = current_index in self.fiftymove_snapshots
+        is_75move_position = current_index in self.seventyfive_snapshots
 
         svg = chess.svg.board(
             board,
@@ -613,17 +646,81 @@ class BoardViewerWindow(QMainWindow):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        pen = QPen(border_color)
-        pen.setWidth(border)
-        painter.setPen(pen)
-
         offset = border // 2
-        painter.drawRect(
-            offset,
-            offset,
-            side + border * 2 - border,
-            side + border * 2 - border
-        )
+        rect = QRectF(offset, offset, side + border * 2 - border, side + border * 2 - border)
+        
+        # Define colors matching the default button colors from main.css
+        # Green (#4caf50) - Board Viewer button color for 3/5-fold repetition
+        # Blue (#1496e8) - Start Scan button color for 50/75-move rule
+        # Red (#f22618) - Stop Scan button color for illegal moves
+        GREEN_BORDER = "#4caf50"
+        BLUE_BORDER = "#1496e8"
+        RED_BORDER = "#f22618"
+        
+        # Determine border colors for each side
+        # Illegal move (red) takes highest priority
+        has_illegal_move = hasattr(self.current_game, 'errors') and self.current_game.errors
+        is_illegal_position = has_illegal_move and self.move_index == len(self.move_list)
+        
+        if is_illegal_position:
+            # Red border for illegal moves - all sides (highest priority)
+            pen_top = QPen(QColor(RED_BORDER))
+            pen_bottom = QPen(QColor(RED_BORDER))
+            pen_left = QPen(QColor(RED_BORDER))
+            pen_right = QPen(QColor(RED_BORDER))
+        else:
+            # Determine colors based on position type
+            # 75-move overrides 50-move, but both combine with repetition (green top/bottom, blue sides)
+            if is_75move_position:
+                # Blue for 75-move
+                top_color = QColor(BLUE_BORDER)
+                bottom_color = QColor(BLUE_BORDER)
+                left_color = QColor(BLUE_BORDER)
+                right_color = QColor(BLUE_BORDER)
+            elif is_50move_position:
+                # Blue for 50-move
+                top_color = QColor(BLUE_BORDER)
+                bottom_color = QColor(BLUE_BORDER)
+                left_color = QColor(BLUE_BORDER)
+                right_color = QColor(BLUE_BORDER)
+            else:
+                # No 50/75-move, check repetition
+                transparent_color = QColor("transparent")
+                top_color = QColor(GREEN_BORDER) if is_snapshot else transparent_color
+                bottom_color = QColor(GREEN_BORDER) if is_snapshot else transparent_color
+                left_color = QColor(GREEN_BORDER) if is_snapshot else transparent_color
+                right_color = QColor(GREEN_BORDER) if is_snapshot else transparent_color
+            
+            # If both repetition AND 50/75-move, combine: green top/bottom, blue sides
+            if (is_snapshot or is_50move_position or is_75move_position) and (is_50move_position or is_75move_position):
+                if is_snapshot:
+                    # Combine: green top/bottom, blue sides
+                    top_color = QColor(GREEN_BORDER)
+                    bottom_color = QColor(GREEN_BORDER)
+            
+            pen_top = QPen(top_color)
+            pen_bottom = QPen(bottom_color)
+            pen_left = QPen(left_color)
+            pen_right = QPen(right_color)
+        
+        # Set border width for all pens
+        pen_top.setWidth(border)
+        pen_bottom.setWidth(border)
+        pen_left.setWidth(border)
+        pen_right.setWidth(border)
+        
+        # Draw each side separately with different colors
+        painter.setPen(pen_top)
+        painter.drawLine(rect.topLeft(), rect.topRight())
+        
+        painter.setPen(pen_bottom)
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        
+        painter.setPen(pen_left)
+        painter.drawLine(rect.topLeft(), rect.bottomLeft())
+        
+        painter.setPen(pen_right)
+        painter.drawLine(rect.topRight(), rect.bottomRight())
 
         renderer.render(painter, QRectF(border, border, side, side))
         painter.end()
@@ -832,3 +929,78 @@ class BoardViewerWindow(QMainWindow):
         last_row = len(self.filtered_games) - 1
         self.load_game_at_index(last_row)
 
+    # ---------------------------------------------------------
+    # SPI FAIR-PLAY ANALYSIS
+    # ---------------------------------------------------------
+    def show_spi_context_menu(self, position):
+        """
+        Show context menu with Fair-Play Analysis option.
+        
+        Args:
+            position: Position in game_list widget coordinates
+        """
+        if not self.current_game:
+            return
+        
+        menu = QMenu(self)
+        action = menu.addAction("Fair-Play Analysis")
+        action.triggered.connect(self.run_fair_play_analysis)
+        menu.exec(self.game_list.mapToGlobal(position))
+    
+    def run_fair_play_analysis(self):
+        """Start Fair-Play SPI analysis on current game."""
+        if not self.current_game:
+            QMessageBox.warning(
+                self,
+                "No Game Selected",
+                "Please select a game first."
+            )
+            return
+        
+        # Get Stockfish path - use default or from settings
+        engine_path = "engine/stockfish.exe"
+        
+        # Show progress dialog
+        self._progress_dialog = SPIProgressDialog(self)
+        self._progress_dialog.show()
+        
+        # Start worker thread
+        self._spi_worker = SPIWorker(engine_path, self.current_game)
+        self._spi_worker.analysis_complete.connect(self.on_analysis_complete)
+        self._spi_worker.error_occurred.connect(self.on_analysis_error)
+        self._spi_worker.progress_update.connect(self._progress_dialog.log_message)
+        self._spi_worker.start()
+    
+    def on_analysis_complete(self, results):
+        """
+        Handle analysis completion.
+        
+        Args:
+            results: SPIResults object with analysis data
+        """
+        if self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog = None
+        
+        # Show results dialog (non-modal to allow app interaction)
+        self._results_dialog = SPIDialog(results, self)
+        self._results_dialog.setModal(False)
+        self._results_dialog.setWindowFlags(self._results_dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        self._results_dialog.show()
+    
+    def on_analysis_error(self, error_msg):
+        """
+        Handle analysis error.
+        
+        Args:
+            error_msg: Error message string
+        """
+        if self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog = None
+        
+        QMessageBox.critical(
+            self,
+            "Analysis Error",
+            f"An error occurred during analysis:\n\n{error_msg}"
+        )

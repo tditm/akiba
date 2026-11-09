@@ -91,7 +91,6 @@ class CheckmateChecker(BaseChecker):
                         game_id=gid,
                     )
                     entries.append(entry)
-                break  # Stop at first checkmate (game is over)
 
         return entries
 

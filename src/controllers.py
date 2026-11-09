@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from datetime import datetime
 from threading import Event, Thread, Lock
 from typing import List, Dict
 
@@ -94,6 +95,10 @@ class ChessClaimController(QApplication):
         self.illegal_move_reminder_enabled = False
         self.illegal_move_reminder_fired: set = set()
 
+        # Possible incorrect result reminder (uses set for tracking shown reminders)
+        self.possible_incorrect_result_enabled = False
+        self.mismatched_result_shown: set = set()
+
         # Sofia rule reminder
         self.sofia_rule_enabled = False
         self.sofia_rule_threshold = 30
@@ -166,6 +171,9 @@ class ChessClaimController(QApplication):
             self.possible_threefold_enabled = data.get("possible_threefold", False)
             self.possible_fiftymove_enabled = data.get("possible_50_move", False)
 
+            # Possible incorrect result reminder
+            self.possible_incorrect_result_enabled = data.get("possible_incorrect_result", False)
+
             # Low time reminder
             self.low_time_reminder_enabled = data.get("low_time_enabled", False)
             self.low_time_threshold_seconds = data.get("low_time_seconds", 120)
@@ -179,6 +187,9 @@ class ChessClaimController(QApplication):
             # Sofia rule reminder
             self.sofia_rule_enabled = data.get("sofia_enabled", False)
             self.sofia_rule_threshold = data.get("sofia_move", 30)
+
+            # Possible incorrect result reminder
+            self.possible_incorrect_result_enabled = data.get("possible_incorrect_result", False)
 
         except Exception:
             # If loading fails, keep default values
@@ -194,6 +205,7 @@ class ChessClaimController(QApplication):
             "timecontrol_move": self.timecontrol_threshold,
             "possible_threefold": self.possible_threefold_enabled,
             "possible_50_move": self.possible_fiftymove_enabled,
+            "possible_incorrect_result": self.possible_incorrect_result_enabled,
             "low_time_enabled": self.low_time_reminder_enabled,
             "low_time_seconds": self.low_time_threshold_seconds,
             "flag_fall_reminder": self.flag_fall_reminder_enabled,
@@ -223,7 +235,8 @@ class ChessClaimController(QApplication):
         # Possible reminders
         self.view.possible_threefold_action.setChecked(self.possible_threefold_enabled)
         self.view.possible_fiftymove_action.setChecked(self.possible_fiftymove_enabled)
-        
+        self.view.possible_incorrect_result_action.setChecked(self.possible_incorrect_result_enabled)
+
         # Low time reminder
         self.view.low_time_action.setChecked(self.low_time_reminder_enabled)
         self.view.low_time_spin.setValue(self.low_time_threshold_seconds)
@@ -459,6 +472,10 @@ class ChessClaimController(QApplication):
 
     def _add_illegal_move_claim(self, game_idx: int, error_msg: str) -> None:
         """Add an illegal move claim entry for a game that failed to parse."""
+        # Skip if illegal move reminder is disabled in menu
+        if not self.illegal_move_reminder_enabled:
+            return
+        
         if game_idx >= len(self.games):
             return
         
@@ -516,6 +533,126 @@ class ChessClaimController(QApplication):
         self.illegal_move_reminder_fired.add(self.make_game_id(game))
 
     # -------------------------------------------------------------------------
+    # MISMATCHED RESULT ANALYSIS
+    # -------------------------------------------------------------------------
+
+    def _start_mismatched_analysis(self, game, declared_result: str, final_fen: str):
+        """
+        Start async Stockfish analysis for a single game.
+        Called from Scan worker when a new finished game is detected.
+        Uses queue to limit concurrent analyses to prevent Stockfish overload.
+        """
+        if not self.possible_incorrect_result_enabled:
+            return
+        game_id = "|".join([
+            game.headers.get("Event", ""),
+            game.headers.get("Round", ""),
+        ])
+        # Update engine status to show activity with current timestamp
+        current_time = datetime.now().strftime('%H:%M:%S')
+        self.view.set_engine_status(True, current_time)
+        
+        from src.models.workers import EngineWorker, GameAnalysisItem
+        
+        # Create analysis item and add to queue
+        analysis_item = GameAnalysisItem(game, declared_result, final_fen)
+        
+        if not hasattr(self, 'game_queue'):
+            self.game_queue = None
+        
+        if self.game_queue is None:
+            return
+        
+        if not self.game_queue.put(analysis_item):
+            pass  # Game already in queue, skip
+    
+    def _start_engine_worker(self):
+        """Start the engine worker that processes the game queue."""
+        if not self.possible_incorrect_result_enabled:
+            return
+        
+        # Reset stopped flag when starting new scan
+        self._engine_stopped = False
+        
+        from src.models.workers import EngineWorker
+        # Show engine status when worker starts
+        current_time = datetime.now().strftime('%H:%M:%S')
+        self.view.set_engine_status(True, current_time)
+        
+        # Create and start a single persistent worker for the queue
+        self.engine_worker = EngineWorker("engine/stockfish.exe", self.game_queue)
+        
+        def on_analysis_complete(analyzed_game, entry):
+            """Callback when analysis finishes."""
+            # Check if engine was stopped - don't update status if so
+            if getattr(self, '_engine_stopped', False):
+                return
+            if entry:
+                # Add to claims store and table
+                self.claims_store.add_claim(entry)
+                self.view.add_item_to_table(entry)
+            # Update timestamp after each analysis
+            current_time = datetime.now().strftime('%H:%M:%S')
+            self.view.set_engine_status(True, current_time)
+        
+        self.engine_worker.analysis_complete.connect(on_analysis_complete)
+        
+        # Connect logging signal (now includes board_number and last_moves)
+        def on_log(game_index, board_number, declared_result, engine_score, last_moves):
+            self._log_engine_analysis(game_index, board_number, declared_result, engine_score, last_moves)
+        
+        self.engine_worker.analysis_logged.connect(on_log)
+        
+        # Start the worker
+        self.engine_worker.start()
+    def _update_engine_timestamp(self):
+        """Update engine status with current timestamp when analysis completes."""
+        if self.possible_incorrect_result_enabled:
+            current_time = datetime.now().strftime('%H:%M:%S')
+            self.view.set_engine_status(True, current_time)
+    
+    def _log_engine_analysis(self, game_index: int, board_number: str, declared_result: str, engine_score: float, last_moves: str = ""):
+        """Log engine analysis to file for debugging."""
+        import os
+        
+        app_path = get_appdata_path()
+        log_path = os.path.join(app_path, 'engine_analysis.log')
+        
+        # Determine if result is correct based on evaluation
+        threshold = 3.0
+        verdict = "YES"
+        
+        parsed_result = self._parse_result_for_log(declared_result)
+        if parsed_result is not None:
+            if parsed_result == 1 and engine_score < -threshold:
+                verdict = "NO (mismatch)"
+            elif parsed_result == -1 and engine_score > threshold:
+                verdict = "NO (mismatch)"
+            elif parsed_result == 0 and abs(engine_score) > threshold:
+                verdict = "NO (mismatch)"
+        
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Include last 3 moves for context (helps referee understand why the evaluation is what it is)
+        moves_info = f" Moves: {last_moves}" if last_moves else ""
+        log_line = f"[{timestamp}] Game {game_index} (Board {board_number}): Result={declared_result}, Engine eval={engine_score:+.2f}{moves_info}, Correct? {verdict}\n"
+        
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(log_line)
+        except Exception:
+            pass  # Ignore log errors
+    
+    def _parse_result_for_log(self, result: str) -> int:
+        """Parse PGN result string to numeric value."""
+        result_map = {
+            "1-0": 1,
+            "0-1": -1,
+            "1/2-1/2": 0,
+            "*": None
+        }
+        return result_map.get(result)
+    
+    # -------------------------------------------------------------------------
     # NEW MOVE
     # -------------------------------------------------------------------------
 
@@ -549,12 +686,13 @@ class ChessClaimController(QApplication):
             entries,
             scoresheet_fired,
             time_control_fired,
-            low_time_fired,
+            low_time_shown,
             flag_fall_shown,
             sofia_rule_fired,
             two_fold_shown,
             fortyfive_moves_shown,
-            illegal_move_shown
+            illegal_move_shown,
+            mismatched_result_shown
         ) = self.reminder_manager.run_all_reminders(
             games=self.games,
             claims_model=self.claims_manager,
@@ -568,21 +706,22 @@ class ChessClaimController(QApplication):
             fiftymove_enabled=self.possible_fiftymove_enabled,
             low_time_enabled=self.low_time_reminder_enabled,
             low_time_threshold_seconds=self.low_time_threshold_seconds,
-            low_time_fired=self.low_time_reminder_fired,
             flag_fall_enabled=self.flag_fall_reminder_enabled,
             flag_fall_shown=self.flag_fall_reminder_fired,
             sofia_rule_enabled=self.sofia_rule_enabled,
             sofia_rule_threshold=self.sofia_rule_threshold,
             sofia_rule_fired=self.sofia_rule_fired,
             illegal_move_enabled=self.illegal_move_reminder_enabled,
+            mismatched_result_enabled=self.possible_incorrect_result_enabled,
         )
 
         # Update state dictionaries from manager results
         self.scoresheet_reminder_fired = scoresheet_fired
         self.timecontrol_reminder_fired = time_control_fired
-        self.low_time_reminder_fired = low_time_fired
+        self.low_time_reminder_fired = low_time_shown
         self.flag_fall_reminder_fired = flag_fall_shown
         self.sofia_rule_fired = sofia_rule_fired
+        self.mismatched_result_shown = mismatched_result_shown
 
         # NEW: Store all claims in central store AND update GUI table
         for entry in entries:
@@ -621,6 +760,9 @@ class ChessClaimController(QApplication):
         if self.scan_worker and self.scan_worker.isRunning():
             return
 
+        # Clear shown_reminders for fresh scan - this allows reminders to reappear
+        self.mismatched_result_shown.clear()
+
         # DON'T clear acknowledged rows - they should reappear after restart
         # unless they were explicitly cleared via Clear Resolved button
         # self.view.clear_ack_rows()  <-- REMOVE THIS!
@@ -646,23 +788,43 @@ class ChessClaimController(QApplication):
         if not self.scan_worker or not self.scan_worker.isRunning():
             return
 
+        # Set flag to prevent engine status from being re-enabled after stop
+        self._engine_stopped = True
+        
+        engine_worker = getattr(self, 'engine_worker', None)
+        
         self.stop_worker = Stop(
             self.stop_event,
             self.make_pgn_worker,
             self.scan_worker,
             self.download_worker,
-            self.livechess_worker
+            self.livechess_worker,
+            engine_worker
         )
+
+        # Pass game_queue to stop worker for poison pill delivery
+        if hasattr(self.stop_worker, 'game_queue'):
+            self.stop_worker.game_queue = getattr(self, 'game_queue', None)
 
         self.stop_worker.enable_signal.connect(self.on_stop_enable_status)
         self.stop_worker.disable_signal.connect(self.on_stop_disable_status)
         self.stop_worker.start()
         self.stop_worker.wait()
         self.view.change_scan_button_text(Status.STOP)
+        
+        # Hide engine status immediately when Stop is clicked (like Scan does)
+        self.view.set_engine_status(False)
 
         # DON'T reset checkers - preserve seen_positions for continuity
         # self.reminder_manager.reset_checkers()
         self.stop_event.clear()
+        
+        # Clear game queue after stopping workers
+        if hasattr(self, 'game_queue') and self.game_queue:
+            self.game_queue.clear()
+        
+        # Hide engine status when scan stops
+        self.view.set_engine_status(False)
         
         # Clear livechess sources on stop
         self.livechess_sources = []
@@ -723,12 +885,17 @@ class ChessClaimController(QApplication):
         app_path = get_appdata_path()
         filename = os.path.join(app_path, "games.pgn")
 
+        # Create a new game queue for this scan session
+        from src.models.workers import GameQueue
+        self.game_queue = GameQueue()
+        
         self.scan_worker = Scan(
             self.claims_manager,
             filename,
             lock,
             None,
-            self.stop_event
+            self.stop_event,
+            self.game_queue
         )
 
         self.scan_worker.add_entry_signal.connect(self.update_claims_table)
@@ -736,13 +903,26 @@ class ChessClaimController(QApplication):
 
         if hasattr(self.scan_worker, "new_move_signal"):
             self.scan_worker.new_move_signal.connect(self.on_new_move)
+        
+        # Connect game_queued signal for async Stockfish analysis (now handled by engine worker)
+        if hasattr(self.scan_worker, "game_queued_signal"):
+            self.scan_worker.game_queued_signal.connect(self._start_mismatched_analysis)
 
-        # FIX: Load games BEFORE starting scan so game_id_to_index is populated
+        # Clear old log file on new scan
+        try:
+            log_path = os.path.join(get_appdata_path(), 'engine_analysis.log')
+            if os.path.exists(log_path):
+                os.remove(log_path)
+        except Exception:
+            pass
+        
         # Only if games.pgn already exists (created by make_pgn_worker)
-        app_path = get_appdata_path()
         pgn_path = os.path.join(app_path, "games.pgn")
         if os.path.exists(pgn_path):
             self.on_pgn_updated()
+
+        # Start the engine worker to process the queue
+        self._start_engine_worker()
 
         self.scan_worker.finished.connect(self.on_new_move)
 

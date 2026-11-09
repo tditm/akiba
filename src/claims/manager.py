@@ -1,6 +1,6 @@
 from typing import List, Any, Set
 
-from src.models.events import ClaimEntry
+from src.models.events import ClaimEntry, ClaimType
 from src.claims.checkers import (
     ThreeFoldChecker,
     FiveFoldChecker,
@@ -62,6 +62,14 @@ class ClaimsManager:
         # Run 3-fold checker (does not stop game)
         entries_3fold, two_fold_shown = self.threefold_checker.check_batch(games, claims_model, game_index=game_index)
         all_entries.extend(entries_3fold)
+
+        # Filter out 3-fold entries for positions that already have 5-fold (5-fold takes precedence)
+        entries_5fold_set = {(e.game_id, e.move_counter) for e in entries_5fold}
+        all_entries = [e for e in all_entries if not (e.type == ClaimType.THREEFOLD and (e.game_id, e.move_counter) in entries_5fold_set)]
+
+        # Filter out 50-move entries for positions that already have 75-move (75-move takes precedence)
+        entries_75move_set = {(e.game_id, e.move_counter) for e in entries_75move}
+        all_entries = [e for e in all_entries if not (e.type == ClaimType.FIFTY_MOVES and (e.game_id, e.move_counter) in entries_75move_set)]
 
         return all_entries, self.dont_check, two_fold_shown
 

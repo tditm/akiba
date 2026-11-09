@@ -66,6 +66,8 @@ class ChessClaimView(QMainWindow):
         "download_image",
         "scan_label",
         "scan_image",
+        "engine_label",
+        "engine_image",
         "spinner",
         "status_bar",
         "about_dialog",
@@ -75,6 +77,7 @@ class ChessClaimView(QMainWindow):
         "scoresheet_spin",
         "possible_threefold_action",
         "possible_fiftymove_action",
+        "possible_incorrect_result_action",
         "timecontrol_action",
         "timecontrol_spin",
         "low_time_action",
@@ -126,6 +129,12 @@ class ChessClaimView(QMainWindow):
         self.download_image = QLabel()
         self.scan_label = QLabel()
         self.scan_image = QLabel()
+        
+        # Engine status labels (for mismatched result analysis) - hidden by default
+        self.engine_label = QLabel("Engine")
+        self.engine_image = QLabel()
+        self.engine_label.setVisible(False)
+        self.engine_image.setVisible(False)
 
         # Spinner for scan status
         self.spinner = QMovie(resource_path("spinner.gif"))
@@ -162,7 +171,7 @@ class ChessClaimView(QMainWindow):
         self.notifications_enabled_action.setChecked(True)
         
         # Scoresheet reminder
-        self.scoresheet_action = QCheckBox("Scoresheet change reminder after move")
+        self.scoresheet_action = QCheckBox("Scoresheet change after move")
         self.scoresheet_action.setChecked(False)
         self.scoresheet_spin = QSpinBox()
         self.scoresheet_spin.setRange(1, 200)
@@ -170,7 +179,7 @@ class ChessClaimView(QMainWindow):
         self.scoresheet_spin.setEnabled(False)
 
         # Time control reminder
-        self.timecontrol_action = QCheckBox("Time control reminder after move")
+        self.timecontrol_action = QCheckBox("Time control after move")
         self.timecontrol_action.setChecked(False)
         self.timecontrol_spin = QSpinBox()
         self.timecontrol_spin.setRange(1, 200)
@@ -178,15 +187,19 @@ class ChessClaimView(QMainWindow):
         self.timecontrol_spin.setEnabled(False)
 
         # Possible Threefold Reminder
-        self.possible_threefold_action = QCheckBox("Possible threefold reminder (2 fold)")
+        self.possible_threefold_action = QCheckBox("Possible threefold (2 fold)")
         self.possible_threefold_action.setChecked(False)
 
         # Possible 50-move Reminder
-        self.possible_fiftymove_action = QCheckBox("Possible 50-move reminder (45 moves)")
+        self.possible_fiftymove_action = QCheckBox("Possible 50-move (45 moves)")
         self.possible_fiftymove_action.setChecked(False)
 
+        # Possible Incorrect Result Reminder
+        self.possible_incorrect_result_action = QCheckBox("Possible incorrect result")
+        self.possible_incorrect_result_action.setChecked(False)
+
         # Low Time Reminder
-        self.low_time_action = QCheckBox("Low time reminder if less seconds than")
+        self.low_time_action = QCheckBox("Low time - if less second than")
         self.low_time_action.setChecked(False)
         self.low_time_spin = QSpinBox()
         self.low_time_spin.setRange(1, 600)
@@ -194,15 +207,15 @@ class ChessClaimView(QMainWindow):
         self.low_time_spin.setEnabled(False)
 
         # Flag Fall Reminder
-        self.flag_fall_action = QCheckBox("Flag fall reminder (00:00:00)")
+        self.flag_fall_action = QCheckBox("Flag fall (00:00:00)")
         self.flag_fall_action.setChecked(False)
 
         # Illegal Move Reminder
         self.illegal_move_action = QCheckBox("First illegal move")
         self.illegal_move_action.setChecked(False)
 
-        # Sofia Rule Reminder
-        self.sofia_action = QCheckBox("Sofia rule - draw before move completed")
+        # Draw agreement (Sofia rule)
+        self.sofia_action = QCheckBox("Draw before move completed (Sofia rule)")
         self.sofia_action.setChecked(False)
         self.sofia_spin = QSpinBox()
         self.sofia_spin.setRange(1, 200)
@@ -265,6 +278,11 @@ class ChessClaimView(QMainWindow):
 
         self.possible_fiftymove_action.stateChanged.connect(
             lambda state: (setattr(self.controller, "possible_fiftymove_enabled", bool(state)), self.controller.save_options())
+        )
+
+        # Possible incorrect result reminder connection
+        self.possible_incorrect_result_action.stateChanged.connect(
+            lambda state: (setattr(self.controller, "possible_incorrect_result_enabled", bool(state)), self.controller.save_options())
         )
 
         self.low_time_action.stateChanged.connect(self._update_low_time_settings)
@@ -354,14 +372,17 @@ class ChessClaimView(QMainWindow):
         center_container = QWidget()
         center_layout = QHBoxLayout()
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(30)  # spacing from Add Sources button
+        center_layout.setSpacing(10)  # uniform spacing between all elements
         
+        # Add widgets with consistent spacing
         center_layout.addWidget(self.source_label)
         center_layout.addWidget(self.source_image)
         center_layout.addWidget(self.download_label)
         center_layout.addWidget(self.download_image)
         center_layout.addWidget(self.scan_label)
         center_layout.addWidget(self.scan_image)
+        center_layout.addWidget(self.engine_label)
+        center_layout.addWidget(self.engine_image)
         
         center_container.setLayout(center_layout)
         status_layout.addWidget(center_container)
@@ -500,6 +521,35 @@ class ChessClaimView(QMainWindow):
         self.download_image.setVisible(False)
         self.scan_label.setVisible(False)
         self.scan_image.setVisible(False)
+
+    def set_engine_status(self, enabled: bool, last_analysis_time: Optional[str] = None) -> None:
+        """Update the engine status in the status bar."""
+        if enabled:
+            # Show engine status when analysis is active
+            self.engine_label.setVisible(True)
+            self.engine_image.setVisible(True)
+            
+            if last_analysis_time:
+                self.engine_image.setPixmap(
+                    self.ok_pixmap.scaled(
+                        self.ICON_SIZE,
+                        self.ICON_SIZE,
+                        transformMode=Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                self.engine_label.setText(f"Engine ({last_analysis_time})")
+            else:
+                self.engine_image.setPixmap(
+                    self.ok_pixmap.scaled(
+                        self.ICON_SIZE,
+                        self.ICON_SIZE,
+                        transformMode=Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                self.engine_label.setText("Engine (waiting)")
+        else:
+            # Hide only the tick icon, keep label with last timestamp visible
+            self.engine_image.setVisible(False)
 
     def closeEvent(self, event: QEvent) -> None:
         """

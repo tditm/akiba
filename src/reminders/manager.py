@@ -10,6 +10,7 @@ from src.reminders.checkers import (
     FlagFallChecker,
     SofiaRuleChecker,
     IllegalMoveChecker,
+    MismatchedResultChecker,
 )
 
 
@@ -25,6 +26,7 @@ class ReminderManager:
         self.flag_fall_checker = FlagFallChecker()
         self.sofia_rule_checker = SofiaRuleChecker()
         self.illegal_move_checker = IllegalMoveChecker()
+        self.mismatched_result_checker = MismatchedResultChecker(engine_path="engine/stockfish.exe")
 
     def get_enabled_checkers(self) -> Dict[str, Any]:
         return {
@@ -36,6 +38,7 @@ class ReminderManager:
             "flag_fall": self.flag_fall_checker,
             "sofia_rule": self.sofia_rule_checker,
             "illegal_move": self.illegal_move_checker,
+            "mismatched_result": self.mismatched_result_checker,
         }
 
     def reset_checkers(self) -> None:
@@ -43,6 +46,8 @@ class ReminderManager:
         self.two_fold_checker.shown_reminders.clear()
         self.fortyfive_moves_checker.shown_reminders.clear()
         self.illegal_move_checker.shown_reminders.clear()
+        self.low_time_checker.shown_reminders.clear()
+        self.mismatched_result_checker.shown_reminders.clear()
 
     def run_all_reminders(
         self,
@@ -58,13 +63,13 @@ class ReminderManager:
         fiftymove_enabled: bool,
         low_time_enabled: bool,
         low_time_threshold_seconds: int,
-        low_time_fired: Dict[int, bool],
         flag_fall_enabled: bool,
         flag_fall_shown: set,
         sofia_rule_enabled: bool,
         sofia_rule_threshold: int,
         sofia_rule_fired: Dict[int, bool],
         illegal_move_enabled: bool,
+        mismatched_result_enabled: bool,
     ) -> tuple:
         """Run all enabled reminders and return collected entries."""
         all_entries: List[ClaimEntry] = []
@@ -105,12 +110,13 @@ class ReminderManager:
 
         if low_time_enabled:
             self.low_time_checker.enabled = True
-            entries, low_time_fired = self.low_time_checker.check_batch(
-                games, claims_model, threshold_seconds=low_time_threshold_seconds, fired_dict=low_time_fired
+            entries, low_time_shown = self.low_time_checker.check_batch(
+                games, claims_model, threshold_seconds=low_time_threshold_seconds
             )
             all_entries.extend(entries)
         else:
             self.low_time_checker.enabled = False
+            low_time_shown = self.low_time_checker.shown_reminders
 
         if flag_fall_enabled:
             self.flag_fall_checker.enabled = True
@@ -136,7 +142,16 @@ class ReminderManager:
             self.illegal_move_checker.enabled = False
             illegal_move_shown = self.illegal_move_checker.shown_reminders
 
+        if mismatched_result_enabled:
+            self.mismatched_result_checker.enabled = True
+            entries, mismatched_result_shown = self.mismatched_result_checker.check_batch(games, claims_model)
+            all_entries.extend(entries)
+        else:
+            self.mismatched_result_checker.enabled = False
+            mismatched_result_shown = self.mismatched_result_checker.shown_reminders
+
         return (
-            all_entries, scoresheet_fired, time_control_fired, low_time_fired,
-            flag_fall_shown, sofia_rule_fired, two_fold_shown, fortyfive_moves_shown, illegal_move_shown
+            all_entries, scoresheet_fired, time_control_fired, low_time_shown,
+            flag_fall_shown, sofia_rule_fired, two_fold_shown, fortyfive_moves_shown,
+            illegal_move_shown, mismatched_result_shown
         )

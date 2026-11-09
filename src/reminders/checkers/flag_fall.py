@@ -37,6 +37,28 @@ class FlagFallChecker(BaseChecker):
         if match:
             return match.group(1)
         return None
+    
+    def normalize_clock_time(self, clock_time: str | None) -> str | None:
+        """
+        Normalize clock time to HH:MM:SS format with leading zeros.
+        Handles formats like '0:00:00', '00:00:00', '1:23:45', etc.
+        """
+        if not clock_time:
+            return None
+        
+        try:
+            parts = clock_time.split(':')
+            if len(parts) != 3:
+                return None
+            
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            seconds = int(parts[2])
+            
+            # Return normalized format with leading zeros
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        except (ValueError, IndexError):
+            return None
 
     def check(self, game: Any, claims_model: Any, **kwargs) -> List[ClaimEntry]:
         """Check a single game for flag fall."""
@@ -47,7 +69,55 @@ class FlagFallChecker(BaseChecker):
         gid = claims_model.controller.make_game_id(game)
         
         # Check for flag fall indicators in PGN comments
-        for node in game.mainline():
+        moves_list = list(game.mainline_moves())
+        
+        for idx, node in enumerate(game.mainline()):
+            clock_time = self.extract_clock_from_node(node)
+            
+            # Flag fall triggered when clock reaches 0:00:00 (normalized format)
+            normalized_time = self.normalize_clock_time(clock_time)
+            if normalized_time == "00:00:00":
+                reminder_key = f"{gid}:flagfall"
+                
+                if reminder_key not in self.shown_reminders:
+                    self.shown_reminders.add(reminder_key)
+                    
+                    board_number = claims_model.get_board_number(game)
+                    
+                    # Get the move that led to flag fall (current node's move)
+                    move_counter = (idx + 1)  # 1-based ply index
+                    from math import ceil
+                    move_num = ceil((idx + 1) / 2)
+                    
+                    if idx < len(moves_list):
+                        board = game.board()
+                        for i in range(idx):
+                            board.push(moves_list[i])
+                        san_move = board.san(moves_list[idx])
+                        
+                        # Format move with number (e.g., "40. e5" or "40...e5")
+                        if (idx + 1) % 2 == 0:
+                            printable_move = f"{move_num}...{san_move} ({clock_time})"
+                        else:
+                            printable_move = f"{move_num}.{san_move} ({clock_time})"
+                    else:
+                        printable_move = f"{move_num} ({clock_time})"
+                    
+                    entry = ClaimEntry(
+                        type=ClaimType.FLAG_FALL_REMINDER,
+                        board_number=board_number,
+                        players=get_players(game),
+                        move=printable_move,
+                        game_index=0,
+                        move_counter=move_counter,
+                        start_move_counter=0,
+                        comment=f"Flag fall: clock reached {clock_time}",
+                        game_id=gid,
+                    )
+                    entries.append(entry)
+                    break
+            
+            # Also check for text-based flag fall indicators (backward compatibility)
             if hasattr(node, 'comment') and node.comment:
                 comment = node.comment.lower()
                 
@@ -60,13 +130,32 @@ class FlagFallChecker(BaseChecker):
                         
                         board_number = claims_model.get_board_number(game)
                         
+                        # Get the move that led to flag fall (current node's move)
+                        move_counter = (idx + 1)  # 1-based ply index
+                        from math import ceil
+                        move_num = ceil((idx + 1) / 2)
+                        
+                        if idx < len(moves_list):
+                            board = game.board()
+                            for i in range(idx):
+                                board.push(moves_list[i])
+                            san_move = board.san(moves_list[idx])
+                            
+                            # Format move with number (e.g., "40. e5" or "40...e5")
+                            if (idx + 1) % 2 == 0:
+                                printable_move = f"{move_num}...{san_move}"
+                            else:
+                                printable_move = f"{move_num}.{san_move}"
+                        else:
+                            printable_move = str(move_num)
+                        
                         entry = ClaimEntry(
                             type=ClaimType.FLAG_FALL_REMINDER,
                             board_number=board_number,
                             players=get_players(game),
-                            move="Flag fall detected",
+                            move=printable_move,
                             game_index=0,
-                            move_counter=len(list(game.mainline_moves())) // 2,
+                            move_counter=move_counter,
                             start_move_counter=0,
                             comment=f"Flag fall indicated in PGN: {node.comment}",
                             game_id=gid,

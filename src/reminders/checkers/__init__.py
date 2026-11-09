@@ -7,6 +7,7 @@ from src.reminders.checkers.low_time import LowTimeChecker
 from src.reminders.checkers.flag_fall import FlagFallChecker
 from src.reminders.checkers.sofia_rule import SofiaRuleChecker
 from src.reminders.checkers.illegal_move import IllegalMoveChecker
+from src.reminders.checkers.mismatched_result import MismatchedResultChecker
 
 __all__ = [
     "BaseChecker",
@@ -18,4 +19,5 @@ __all__ = [
     "FlagFallChecker",
     "SofiaRuleChecker",
     "IllegalMoveChecker",
+    "MismatchedResultChecker",
 ]

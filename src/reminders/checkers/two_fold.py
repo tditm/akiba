@@ -46,20 +46,13 @@ class TwoFoldChecker(BaseChecker):
             board.push(move)
             move_counter += 1
             
-            # Use position-only FEN (first 4 fields) for repetition tracking
-            # This matches chess library's is_repetition() logic
-            fen_parts = board.fen().split()
-            position_fen = ' '.join(fen_parts[:4])  # Ignore halfmove and fullmove counters
-
             # Check for 2-fold repetition using chess library's method
-            # is_repetition(count=2) returns True if position has repeated at least twice
-            # We only trigger when count == 2 (first time it becomes 2-fold, not 3-fold+)
             if board.is_repetition(count=2):
-                # Create a unique key to prevent duplicates (same as threefold_checker)
-                key = (ClaimType.TWO_FOLD_WARNING, gid, move_counter, position_fen)
-
-                if key not in self.seen_positions:
-                    self.seen_positions.add(key)
+                # Use game_id-based key to show only ONE reminder per game (like 45-moves)
+                reminder_key = f"{gid}:2fold"
+                
+                if reminder_key not in self.shown_reminders:
+                    self.shown_reminders.add(reminder_key)
 
                     board_number = claims_model.get_board_number(game)
                     
@@ -80,6 +73,8 @@ class TwoFoldChecker(BaseChecker):
                         game_id=gid,
                     )
                     entries.append(entry)
+                    
+                    break  # Only alert once per game
 
         return entries
 
@@ -110,8 +105,9 @@ class TwoFoldChecker(BaseChecker):
         return entries, self.seen_positions
     
     def reset(self) -> None:
-        """Reset the seen positions set."""
+        """Reset the seen positions and shown reminders sets."""
         self.seen_positions.clear()
+        self.shown_reminders.clear()
     
     def run_all_reminders(self, games: List[Any], claims_model: Any, **kwargs):
         """Run all reminders and return entries + shown_reminders."""

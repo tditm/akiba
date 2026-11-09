@@ -91,7 +91,6 @@ class StalemateChecker(BaseChecker):
                         game_id=gid,
                     )
                     entries.append(entry)
-                break  # Stop at first stalemate (game is over)
 
         return entries
 

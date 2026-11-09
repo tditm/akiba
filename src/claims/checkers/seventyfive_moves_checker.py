@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import List, Any, Set
 from chess.pgn import Game
 from math import ceil
 
@@ -10,13 +10,14 @@ class SeventyFiveMovesChecker(BaseChecker):
     """
     Checker for 75-move rule claims (automatic draw).
     
-    According to FIDE rules, the game is automatically drawn if 75 moves have 
-    been made without a capture or pawn move. This is an automatic draw that 
+    According to FIDE rules, the game is automatically drawn if 75 moves have
+    been made without a capture or pawn move. This is an automatic draw that
     does not require player claim.
     """
 
     def __init__(self) -> None:
         super().__init__()
+        self.seen_positions: Set[tuple] = set()
 
     @staticmethod
     def make_game_id(game: Game, game_index: int = None) -> str:
@@ -59,42 +60,49 @@ class SeventyFiveMovesChecker(BaseChecker):
 
             # Check for 75-move rule (automatic draw)
             if board.is_seventyfive_moves():
-                printable_move = self.get_printable_move(move_counter, san_move)
-                
-                entry = ClaimEntry(
-                    type=ClaimType.SEVENTYFIVE_MOVES,
-                    board_number=board_number,
-                    players=players,
-                    move=printable_move,
-                    game_index=game_index,
-                    move_counter=move_counter,
-                    start_move_counter=last_irreversible_move,
-                    comment="",  # No comment for automatic draws
-                    game_id=gid,
-                )
-                entries.append(entry)
-                
-                # Stop checking after 75-move (automatic draw)
-                break
+                fen = board.fen()
+                key = (ClaimType.SEVENTYFIVE_MOVES, gid, move_counter, fen)
+
+                if key not in self.seen_positions:
+                    self.seen_positions.add(key)
+
+                    printable_move = self.get_printable_move(move_counter, san_move)
+                     
+                    entry = ClaimEntry(
+                        type=ClaimType.SEVENTYFIVE_MOVES,
+                        board_number=board_number,
+                        players=players,
+                        move=printable_move,
+                        game_index=game_index,
+                        move_counter=move_counter,
+                        start_move_counter=last_irreversible_move,
+                        comment="",  # No comment for automatic draws
+                        game_id=gid,
+                    )
+                    entries.append(entry)
 
         return entries
 
     def check_batch(self, games: List[Any], claims_model: Any, **kwargs) -> tuple:
         """Check multiple games for 75-move rule."""
         if not self.enabled:
-            return [], {}
+            return [], self.seen_positions
 
         entries = []
 
         for idx, game in enumerate(games):
-            game_entries = self.check(game, claims_model)
+            game_entries = self.check(game, claims_model, game_index=idx)
             # Update game_index to match batch context
             for entry in game_entries:
                 entry_dict = entry.__dict__.copy()
                 entry_dict['game_index'] = idx
                 entries.append(ClaimEntry(**entry_dict))
 
-        return entries, {}
+        return entries, self.seen_positions
+
+    def reset(self) -> None:
+        """Reset the seen positions set."""
+        self.seen_positions.clear()
 
     @staticmethod
     def get_printable_move(move_counter: int, san_move: str) -> str:

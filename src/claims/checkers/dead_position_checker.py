@@ -91,7 +91,6 @@ class DeadPositionChecker(BaseChecker):
                         game_id=gid,
                     )
                     entries.append(entry)
-                break  # Stop at first dead position (game is over)
 
         return entries
 

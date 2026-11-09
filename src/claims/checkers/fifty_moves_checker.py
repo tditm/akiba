@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import List, Any, Set
 from chess.pgn import Game
 from math import ceil
 
@@ -10,13 +10,14 @@ class FiftyMovesChecker(BaseChecker):
     """
     Checker for 50-move rule claims.
     
-    According to FIDE rules, a player may claim a draw if no capture has been made 
-    and no pawn has been moved in the last 50 moves by each player. The comment 
+    According to FIDE rules, a player may claim a draw if no capture has been made
+    and no pawn has been moved in the last 50 moves by each player. The comment
     includes the move number of the last irreversible move.
     """
 
     def __init__(self) -> None:
         super().__init__()
+        self.seen_positions: Set[tuple] = set()
 
     @staticmethod
     def make_game_id(game, game_index: int = None) -> str:
@@ -57,28 +58,34 @@ class FiftyMovesChecker(BaseChecker):
 
             # Check for 50-move rule (claimable draw, not automatic)
             if board.is_fifty_moves():
-                printable_move = self.get_printable_move(move_counter, san_move)
-                comment = f"First counting move: {last_irreversible_move}"
-                
-                entry = ClaimEntry(
-                    type=ClaimType.FIFTY_MOVES,
-                    board_number=board_number,
-                    players=players,
-                    move=printable_move,
-                    game_index=game_index,
-                    move_counter=move_counter,
-                    start_move_counter=last_irreversible_move,
-                    comment=comment,
-                    game_id=gid,
-                )
-                entries.append(entry)
+                fen = board.fen()
+                key = (ClaimType.FIFTY_MOVES, gid, move_counter, fen)
+
+                if key not in self.seen_positions:
+                    self.seen_positions.add(key)
+
+                    printable_move = self.get_printable_move(move_counter, san_move)
+                    comment = f"First counting move: {last_irreversible_move}"
+                     
+                    entry = ClaimEntry(
+                        type=ClaimType.FIFTY_MOVES,
+                        board_number=board_number,
+                        players=players,
+                        move=printable_move,
+                        game_index=game_index,
+                        move_counter=move_counter,
+                        start_move_counter=last_irreversible_move,
+                        comment=comment,
+                        game_id=gid,
+                    )
+                    entries.append(entry)
 
         return entries
 
     def check_batch(self, games: List[Any], claims_model: Any, **kwargs) -> tuple:
         """Check multiple games for 50-move rule."""
         if not self.enabled:
-            return [], {}
+            return [], self.seen_positions
 
         entries = []
 
@@ -90,7 +97,11 @@ class FiftyMovesChecker(BaseChecker):
                 entry_dict['game_index'] = idx
                 entries.append(ClaimEntry(**entry_dict))
 
-        return entries, {}
+        return entries, self.seen_positions
+
+    def reset(self) -> None:
+        """Reset the seen positions set."""
+        self.seen_positions.clear()
 
     @staticmethod
     def get_printable_move(move_counter: int, san_move: str) -> str:

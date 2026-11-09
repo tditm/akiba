@@ -34,9 +34,11 @@ class SofiaRuleChecker(BaseChecker):
         if result not in ("1/2-1/2", "½-½"):
             return entries  # Not a draw, skip
         
-        move_count = len(list(game.mainline_moves())) // 2
+        moves_list = list(game.mainline_moves())
+        ply_count = len(moves_list)  # Use ply count (half-moves) for consistency with other checkers
+        full_move_count = ply_count // 2  # Full moves for display/comparison
         
-        if move_count >= threshold:
+        if full_move_count >= threshold:
             return entries  # Draw after allowed move count, skip
 
         # CRITICAL: Check if game ended via legitimate chess rules
@@ -44,15 +46,30 @@ class SofiaRuleChecker(BaseChecker):
         board = game.board()
         
         # Replay the game to check for draw conditions at the end position
-        for move in game.mainline_moves():
+        for move in moves_list:
             board.push(move)
         
         # Check for automatic/legal draw reasons
         if self._is_legitimate_draw_end(board, game):
             return entries  # Game ended legitimately, no Sofia reminder needed
 
+        # Get the last move for display (same format as 3-fold)
+        if moves_list:
+            board = game.board()
+            for move in moves_list[:-1]:
+                board.push(move)
+            last_san = board.san(moves_list[-1])
+            from math import ceil
+            move_num = ceil(ply_count / 2)
+            if ply_count % 2 == 0:
+                printable_move = f"{move_num}...{last_san}"
+            else:
+                printable_move = f"{move_num}.{last_san}"
+        else:
+            printable_move = ""
+        
         # Only flag as Sofia violation if it's an early agreed draw
-        reminder_key = f"{gid}:sofia:{move_count}"
+        reminder_key = f"{gid}:sofia:{full_move_count}"
         
         if reminder_key not in self.shown_reminders:
             self.shown_reminders.add(reminder_key)
@@ -63,9 +80,9 @@ class SofiaRuleChecker(BaseChecker):
                 type=ClaimType.SOFIA_RULE,
                 board_number=board_number,
                 players=get_players(game),
-                move=f"Draw at move {move_count}",
+                move=f"{printable_move} (draw)" if printable_move else f"Draw at move {full_move_count}",
                 game_index=0,
-                move_counter=move_count,
+                move_counter=ply_count,  # Store ply count for correct Board Viewer navigation
                 start_move_counter=0,
                 comment=f"Sofia rule violation: draw agreed before move {threshold}",
                 game_id=gid,

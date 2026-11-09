@@ -43,7 +43,7 @@ class AboutDialog(QDialog):
         appname.setAlignment(Qt.AlignmentFlag.AlignCenter)
         appname.setTextFormat(Qt.TextFormat.RichText)
 
-        version_and_copyright = QLabel("Version 1.0 by Tomek Delega 2026 ©")
+        version_and_copyright = QLabel("Version 1.1 by Tomek Delega 2026 ©")
         version_and_copyright.setObjectName("version")
         version_and_copyright.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

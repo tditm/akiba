@@ -1,4 +1,5 @@
 from typing import List, Any, Dict, Set
+from math import ceil
 
 from src.reminders.checkers.base import BaseChecker
 from src.models.events import ClaimEntry, ClaimType, get_players
@@ -48,6 +49,7 @@ class PossibleFiftyMoveChecker(BaseChecker):
             if board.is_capture(move) or board.piece_at(move.from_square).piece_type == 1:
                 last_irreversible_move = move_counter + 1
 
+            san_move = board.san(move)
             board.push(move)
             move_counter += 1
 
@@ -58,12 +60,13 @@ class PossibleFiftyMoveChecker(BaseChecker):
                     self.shown_reminders.add(reminder_key)
 
                     board_number = claims_model.get_board_number(game)
+                    printable_move = self.get_printable_move(move_counter, san_move)
                     
                     entry = ClaimEntry(
-                        type=ClaimType.FIFTY_MOVES,  # Using FIFTY_MOVES type but as warning
+                        type=ClaimType.FORTYFIVE_MOVES_WARNING,
                         board_number=board_number,
                         players=get_players(game),
-                        move=f"45 moves without capture/pawn",
+                        move=printable_move,
                         game_index=0,
                         move_counter=move_counter,
                         start_move_counter=last_irreversible_move,
@@ -102,3 +105,9 @@ class PossibleFiftyMoveChecker(BaseChecker):
                 entries.append(ClaimEntry(**entry_dict))
 
         return entries, self.shown_reminders
+
+    @staticmethod
+    def get_printable_move(move_counter: int, san_move: str) -> str:
+        """Formats the move number for display (e.g. '12.Nf3' or '12...Nf6')."""
+        move_num = ceil(move_counter / 2)
+        return f"{move_num}...{san_move}" if move_counter % 2 == 0 else f"{move_num}.{san_move}"

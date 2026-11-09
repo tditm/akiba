@@ -113,7 +113,7 @@ def send_beacon():
         # Data to send as JSON
         data = {
             "device_id": device_id,
-            "version": "1.0",
+            "version": "1.1",
             "os": f"{platform.system()} {platform.release()}"
         }
         

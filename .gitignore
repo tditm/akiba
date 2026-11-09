@@ -50,3 +50,7 @@ Thumbs.db
 
 # Local / Utility scripts - nie wersjonujemy
 local/
+
+# Engine
+engine/*
+!engine/engine.md

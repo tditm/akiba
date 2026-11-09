@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('src/views/main.css', '.'), ('cert/cacert.pem', 'cert'), ('icons/', 'icons'), ('USER_DOCUMENTATION.md', '.'), ('local/config_url.json', 'local')],
+    datas=[('src/views/main.css', '.'), ('cert/cacert.pem', 'cert'), ('icons/', 'icons'), ('USER_DOCUMENTATION.md', '.'), ('local/config_url.json', 'local'), ('engine/stockfish.exe', 'engine')],
     hiddenimports=['src.beacon', 'requests', 'urllib3', 'chardet'],
     hookspath=[],
     hooksconfig={},

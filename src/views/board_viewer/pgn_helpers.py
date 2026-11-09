@@ -152,6 +152,59 @@ def compute_repetition_snapshots(move_list) -> set:
     return set(chosen_indices) if chosen_indices else set()
 
 
+def compute_50move_snapshots(move_list, threshold: int = 100) -> dict:
+    """
+    Compute positions for 50-move / 75-move rule tracking.
+    
+    Returns a dict mapping ply_index to the counting value (0/50, 1/50, 2/50, etc.).
+    Only includes positions from the START of counting (halfmove_clock=0 after last irreversible)
+    until end of game, but only if threshold is eventually reached.
+    
+    Logic:
+    - Find the first position where halfmove_clock reaches threshold
+    - Work backwards to find the starting position (where halfmove_clock was 0)
+    - Include all positions from start to end with counting value
+    - Return dict {ply_index: count} where count = 0, 1, 2... (moves since last irreversible)
+    """
+    if not move_list:
+        return {}
+
+    board = chess.Board()
+    
+    # First pass: find the first position where threshold is reached
+    first_threshold_ply = None
+    halfmove_at_each_ply = []
+    
+    for idx, move in enumerate(move_list):
+        board.push(move)
+        halfmove_at_each_ply.append(board.halfmove_clock)
+        
+        if board.halfmove_clock >= threshold and first_threshold_ply is None:
+            first_threshold_ply = idx
+    
+    # If threshold never reached, return empty dict
+    if first_threshold_ply is None:
+        return {}
+    
+    # Work backwards to find the starting position (where halfmove_clock was 0)
+    # The start is at first_threshold_ply - threshold (when halfmove_clock was 0)
+    start_ply = first_threshold_ply - threshold
+    
+    # If start_ply is negative, clamp it to 0
+    if start_ply < 0:
+        start_ply = 0
+    
+    # Second pass: record all positions from start onwards with counting value
+    snapshots = {}
+    for idx in range(start_ply, len(move_list)):
+        # Counting value is the halfmove_clock at that position
+        # But we want to show it as "X/50" where X starts at 0
+        count = halfmove_at_each_ply[idx]
+        snapshots[idx] = count
+    
+    return snapshots
+
+
 def build_pgn_html(game, highlight_index=None):
     """Generate HTML for the PGN view with clickable moves."""
     if not game:
